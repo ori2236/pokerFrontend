@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 import { Redirect, useFocusEffect } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
@@ -13,8 +13,10 @@ const coinImage = require("../../assets/images/doubleo-coin.png");
 
 type PendingRequest = {
   id: number;
+  request_kind: "CONVERSION" | "BONUS";
   username: string;
-  type: "TO_CHIPS" | "TO_COINS";
+  conversion_type: "TO_CHIPS" | "TO_COINS" | null;
+  bonus_title: string | null;
   amount_total: number;
   created_at: string;
 };
@@ -22,13 +24,32 @@ type PendingRequest = {
 export default function RequestQueueScreen() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<PendingRequest[]>([]);
-  const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [feedback, setFeedback] = useState<{ visible: boolean; title: string; message?: string }>({ visible: false, title: "" });
+  const [feedback, setFeedback] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+  }>({ visible: false, title: "" });
 
   async function loadRequests() {
-    const response = await api.get("/conversion-requests/pending");
-    setRequests(response.data);
+    try {
+      const response = await api.get("/requests/pending");
+      setRequests(normalizePendingRequests(response.data));
+    } catch {
+      const fallback = await api.get("/conversion-requests/pending");
+      setRequests(
+        (Array.isArray(fallback.data) ? fallback.data : []).map((item: any) => ({
+          id: Number(item.id),
+          request_kind: "CONVERSION",
+          username: String(item.username || ""),
+          conversion_type: item.type === "TO_COINS" ? "TO_COINS" : "TO_CHIPS",
+          bonus_title: null,
+          amount_total: Number(item.amount_total || 0),
+          created_at: item.created_at,
+        })),
+      );
+    }
   }
 
   async function onRefresh() {
@@ -40,42 +61,67 @@ export default function RequestQueueScreen() {
     }
   }
 
-  async function approveRequest(id: number) {
+  async function approveRequest(item: PendingRequest) {
+    const actionKey = `${item.request_kind}-${item.id}`;
+
     try {
-      setLoadingId(id);
-      await api.post(`/conversion-requests/${id}/approve`);
+      setLoadingKey(actionKey);
+
+      if (item.request_kind === "BONUS") {
+        await api.post(`/requests/bonus/${item.id}/approve`);
+      } else {
+        try {
+          await api.post(`/requests/conversion/${item.id}/approve`);
+        } catch {
+          await api.post(`/conversion-requests/${item.id}/approve`);
+        }
+      }
+
       await loadRequests();
     } catch (error: any) {
-      setFeedback({ visible: true, title: "Unable to approve", message: error?.response?.data?.message || "Failed to approve request" });
+      setFeedback({
+        visible: true,
+        title: "Unable to approve",
+        message: error?.response?.data?.message || "Failed to approve request",
+      });
     } finally {
-      setLoadingId(null);
+      setLoadingKey(null);
     }
   }
 
-  async function rejectRequest(id: number) {
+  async function rejectRequest(item: PendingRequest) {
+    const actionKey = `${item.request_kind}-${item.id}`;
+
     try {
-      setLoadingId(id);
-      await api.post(`/conversion-requests/${id}/reject`);
+      setLoadingKey(actionKey);
+
+      if (item.request_kind === "BONUS") {
+        await api.post(`/requests/bonus/${item.id}/reject`);
+      } else {
+        try {
+          await api.post(`/requests/conversion/${item.id}/reject`);
+        } catch {
+          await api.post(`/conversion-requests/${item.id}/reject`);
+        }
+      }
+
       await loadRequests();
     } catch (error: any) {
-      setFeedback({ visible: true, title: "Unable to reject", message: error?.response?.data?.message || "Failed to reject request" });
+      setFeedback({
+        visible: true,
+        title: "Unable to reject",
+        message: error?.response?.data?.message || "Failed to reject request",
+      });
     } finally {
-      setLoadingId(null);
+      setLoadingKey(null);
     }
   }
 
   useFocusEffect(
     useCallback(() => {
-      loadRequests().catch(() => {});
+      loadRequests().catch(() => { });
     }, []),
   );
-
-  const counts = useMemo(() => {
-    return {
-      buyIn: requests.filter((item) => item.type === "TO_CHIPS").length,
-      cashOut: requests.filter((item) => item.type === "TO_COINS").length,
-    };
-  }, [requests]);
 
   if (user?.role !== "ADMIN") {
     return <Redirect href="/(tabs)/profile" />;
@@ -85,44 +131,49 @@ export default function RequestQueueScreen() {
     <>
       <ScreenContainer refreshing={refreshing} onRefresh={onRefresh}>
         <View style={styles.header}>
-          <Text style={styles.title}>Request</Text>
+          <Text style={styles.title}>Approvals</Text>
           <Image source={coinImage} style={styles.coin} />
         </View>
 
-        <View style={styles.metricRow}>
-          <MetricCard label="Pending" value={String(requests.length)} />
-          <MetricCard label="Buy In" value={String(counts.buyIn)} />
-          <MetricCard label="Cash Out" value={String(counts.cashOut)} />
-        </View>
-
         <View style={styles.stack}>
-          {requests.map((item) => (
-            <ThemedCard key={item.id} glow="none">
-              <View style={styles.topRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.memberName}>{item.username}</Text>
-                  <Text style={styles.requestType}>{item.type === "TO_CHIPS" ? "Buy In" : "Cash Out"}</Text>
+          {requests.map((item) => {
+            const actionKey = `${item.request_kind}-${item.id}`;
+
+            return (
+              <ThemedCard key={actionKey} glow="none">
+                <View style={styles.topRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.memberName}>{item.username}</Text>
+                    <Text style={styles.requestType}>{getRequestTypeLabel(item)}</Text>
+
+                    {item.request_kind === "BONUS" && item.bonus_title ? (
+                      <Text style={styles.bonusTitle}>{item.bonus_title}</Text>
+                    ) : null}
+                  </View>
+
+                  <Text style={styles.amount}>{formatAmount(item.amount_total)} O²</Text>
                 </View>
-                <Text style={styles.amount}>{formatAmount(item.amount_total)} O²</Text>
-              </View>
 
-              <Text style={styles.date}>{formatDateTime(item.created_at)}</Text>
+                <Text style={styles.date}>{formatDateTime(item.created_at)}</Text>
 
-              <View style={styles.buttonRow}>
-                <ThemedButton
-                  title={loadingId === item.id ? "Working..." : "Approve"}
-                  onPress={() => approveRequest(item.id)}
-                  loading={loadingId === item.id}
-                />
-                <ThemedButton
-                  title="Reject"
-                  variant="dark"
-                  onPress={() => rejectRequest(item.id)}
-                  disabled={loadingId === item.id}
-                />
-              </View>
-            </ThemedCard>
-          ))}
+                <View style={styles.buttonRow}>
+                  <ThemedButton
+                    title={loadingKey === actionKey ? "Working..." : "Approve"}
+                    onPress={() => approveRequest(item)}
+                    loading={loadingKey === actionKey}
+                    style={styles.rowButton}
+                  />
+                  <ThemedButton
+                    title="Reject"
+                    variant="dark"
+                    onPress={() => rejectRequest(item)}
+                    disabled={loadingKey === actionKey}
+                    style={styles.rowButton}
+                  />
+                </View>
+              </ThemedCard>
+            );
+          })}
 
           {requests.length === 0 ? (
             <ThemedCard glow="none">
@@ -143,13 +194,35 @@ export default function RequestQueueScreen() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <ThemedCard glow="none" style={styles.metricCard}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-    </ThemedCard>
-  );
+function normalizePendingRequests(payload: any): PendingRequest[] {
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : [];
+
+  return list.map((item: any) => ({
+    id: Number(item.id),
+    request_kind:
+      item.request_kind === "BONUS" || item.kind === "BONUS"
+        ? "BONUS"
+        : "CONVERSION",
+    username: String(item.username || ""),
+    conversion_type:
+      item.request_kind === "BONUS" || item.kind === "BONUS"
+        ? null
+        : item.conversion_type === "TO_COINS" || item.type === "TO_COINS"
+          ? "TO_COINS"
+          : "TO_CHIPS",
+    bonus_title: item.bonus_title ?? item.title ?? item.bonus?.title ?? null,
+    amount_total: Number(item.amount_total ?? item.amount ?? item.amount_snapshot ?? 0),
+    created_at: item.created_at,
+  }));
+}
+
+function getRequestTypeLabel(item: PendingRequest) {
+  if (item.request_kind === "BONUS") return "Bonus";
+  return item.conversion_type === "TO_CHIPS" ? "Buy In" : "Cash Out";
 }
 
 const styles = StyleSheet.create({
@@ -169,27 +242,6 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
   },
-  metricRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
-  },
-  metricCard: {
-    flex: 1,
-  },
-  metricLabel: {
-    color: theme.colors.textSoft,
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    fontWeight: "700",
-    fontSize: 11,
-  },
-  metricValue: {
-    color: theme.colors.gold2,
-    fontSize: 24,
-    fontWeight: "900",
-    marginTop: 6,
-  },
   stack: {
     gap: 12,
   },
@@ -208,6 +260,11 @@ const styles = StyleSheet.create({
     color: theme.colors.textSoft,
     marginTop: 4,
   },
+  bonusTitle: {
+    color: theme.colors.gold2,
+    marginTop: 6,
+    fontWeight: "800",
+  },
   amount: {
     color: theme.colors.gold2,
     fontSize: 24,
@@ -221,6 +278,9 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  rowButton: {
+    flex: 1,
   },
   empty: {
     color: theme.colors.textSoft,

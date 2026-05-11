@@ -17,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="register" />
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="admin-conversion" />
+        <Stack.Screen name="admin-bonuses" />
         <Stack.Screen name="admin-requests" />
         <Stack.Screen name="cashout" />
       </Stack>

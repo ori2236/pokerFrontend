@@ -23,6 +23,7 @@ type ActionRow = {
   admin_username?: string | null;
   source_kind: "REQUEST" | "BONUS";
   session_id?: number | null;
+  bonus_title?: string | null;
 };
 
 export default function ActionsScreen() {
@@ -35,8 +36,33 @@ export default function ActionsScreen() {
   const [actions, setActions] = useState<ActionRow[]>([]);
 
   async function loadData(nextScope = scope, nextStatus = statusFilter) {
-    const response = await api.get(`/conversion-requests?scope=${nextScope}&status=${nextStatus}`);
-    setActions(response.data);
+    try {
+      const response = await api.get(`/actions?scope=${nextScope}&status=${nextStatus}`);
+      setActions(normalizeActionRows(response.data));
+      return;
+    } catch {}
+
+    try {
+      const response = await api.get(`/requests/history?scope=${nextScope}&status=${nextStatus}&type=all`);
+      setActions(normalizeActionRows(response.data));
+      return;
+    } catch {}
+
+    const fallback = await api.get(`/conversion-requests?scope=${nextScope}&status=${nextStatus}`);
+    const mapped = (Array.isArray(fallback.data) ? fallback.data : []).map((item: any) => ({
+      id: String(item.id),
+      action_type: item.action_type === "CASH_OUT" ? "CASH_OUT" : item.action_type === "BONUS" ? "BONUS" : "BUY_IN",
+      username: String(item.username || ""),
+      amount: Number(item.amount || item.amount_total || 0),
+      status: item.status === "REJECTED" ? "REJECTED" : item.status === "APPROVED" ? "APPROVED" : "PENDING",
+      note: item.note ?? null,
+      created_at: item.created_at,
+      admin_username: item.admin_username ?? null,
+      source_kind: item.source_kind === "BONUS" ? "BONUS" : "REQUEST",
+      session_id: item.session_id ?? null,
+      bonus_title: item.bonus_title ?? null,
+    })) as ActionRow[];
+    setActions(mapped);
   }
 
   async function onRefresh() {
@@ -58,6 +84,7 @@ export default function ActionsScreen() {
     () => ({
       total: actions.length,
       pending: actions.filter((item) => item.status === "PENDING").length,
+      bonus: actions.filter((item) => item.action_type === "BONUS").length,
     }),
     [actions],
   );
@@ -72,6 +99,7 @@ export default function ActionsScreen() {
       <View style={styles.metricsRow}>
         <MiniMetric label="Visible" value={String(counts.total)} />
         <MiniMetric label="Pending" value={String(counts.pending)} />
+        <MiniMetric label="Bonus" value={String(counts.bonus)} />
       </View>
 
       <View style={styles.filterRow}>
@@ -98,6 +126,9 @@ export default function ActionsScreen() {
                     {scope === "all" ? <Text style={styles.dot}>•</Text> : null}
                     {scope === "all" ? <Text style={styles.username}>{item.username}</Text> : null}
                   </View>
+                  {item.action_type === "BONUS" && item.bonus_title ? (
+                    <Text style={styles.bonusName}>{item.bonus_title}</Text>
+                  ) : null}
                 </View>
                 <StatusBadge item={item} />
               </View>
@@ -112,7 +143,7 @@ export default function ActionsScreen() {
 
         {actions.length === 0 ? (
           <ThemedCard glow="none">
-            <Text style={styles.empty}>No actions match these filters.</Text>
+            <Text style={styles.empty}>No actions found.</Text>
           </ThemedCard>
         ) : null}
 
@@ -120,6 +151,23 @@ export default function ActionsScreen() {
       </View>
     </ScreenContainer>
   );
+}
+
+function normalizeActionRows(payload: any): ActionRow[] {
+  const list = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
+  return list.map((item: any) => ({
+    id: String(item.id),
+    action_type: item.action_type === "CASH_OUT" ? "CASH_OUT" : item.action_type === "BONUS" ? "BONUS" : "BUY_IN",
+    username: String(item.username || ""),
+    amount: Number(item.amount ?? item.amount_total ?? item.amount_snapshot ?? 0),
+    status: item.status === "REJECTED" ? "REJECTED" : item.status === "APPROVED" ? "APPROVED" : "PENDING",
+    note: item.note ?? null,
+    created_at: item.created_at,
+    admin_username: item.admin_username ?? null,
+    source_kind: item.source_kind === "BONUS" ? "BONUS" : "REQUEST",
+    session_id: item.session_id ?? null,
+    bonus_title: item.bonus_title ?? item.title ?? item.bonus?.title ?? null,
+  }));
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
@@ -148,7 +196,7 @@ function SegmentGrid({ active, label, onPress }: { active: boolean; label: strin
 }
 
 function StatusBadge({ item }: { item: ActionRow }) {
-  const status = item.action_type === "BONUS" ? "APPROVED" : item.status;
+  const status = item.status;
   const bg =
     status === "APPROVED"
       ? "rgba(88,211,155,0.15)"
@@ -212,7 +260,7 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     color: theme.colors.gold2,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "900",
     marginTop: 6,
   },
@@ -285,6 +333,11 @@ const styles = StyleSheet.create({
   username: {
     color: theme.colors.textSoft,
     fontWeight: "700",
+  },
+  bonusName: {
+    color: theme.colors.gold2,
+    marginTop: 8,
+    fontWeight: "800",
   },
   badge: {
     borderRadius: theme.radius.pill,
