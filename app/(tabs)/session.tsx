@@ -162,10 +162,8 @@ export default function SessionScreen() {
   const waitingJoinCount = waitingJoinPlayers.length;
   const waitingCashOutCount = waitingCashOutPlayers.length;
   const totalForAllPlayers = useMemo(() => {
-    const playingTotal = playingPlayers.reduce((sum, item) => sum + Number(item.stack_amount || item.buy_in_total || 0), 0);
-    const waitingCashOutTotal = waitingCashOutPlayers.reduce((sum, item) => sum + Number(item.amount_total || 0), 0);
-    return playingTotal + waitingCashOutTotal;
-  }, [playingPlayers, waitingCashOutPlayers]);
+    return playingPlayers.reduce((sum, item) => sum + Number(item.stack_amount || item.buy_in_total || 0), 0);
+  }, [playingPlayers]);
 
   async function startSession() {
     try {

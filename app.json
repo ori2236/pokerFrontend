@@ -4,7 +4,7 @@
     "slug": "doubleo-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/doubleo-coin-b.png",
     "scheme": "doubleoapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -12,30 +12,29 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.orilevi.doubleo",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/doubleo-coin-b.png",
+        "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/doubleo-coin-b.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/doubleo-coin.png",
+          "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0B0F14",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0B0F14"
           }
         }
       ],
@@ -44,6 +43,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c6d4072a-8909-4494-b03b-95b28ba536a9"
+      }
     }
   }
 }

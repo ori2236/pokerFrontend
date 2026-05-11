@@ -45,36 +45,32 @@ export default function StepperNumberInput({
   controlTextStyle,
 }: Props) {
   const [text, setText] = useState(String(value));
+  const valueRef = useRef(value);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongHoldRef = useRef(false);
 
   useEffect(() => {
+    valueRef.current = value;
     setText(String(value));
   }, [value]);
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      stopHold();
     };
   }, []);
 
   function apply(next: number) {
     const safe = Math.max(min, next);
+    valueRef.current = safe;
     onChange(safe);
     setText(String(safe));
   }
 
-  function runChange(delta: number) {
-    apply(Number(value || 0) + delta * step);
-  }
-
-  function startHold(delta: number) {
-    stopHold();
-    runChange(delta);
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => runChange(delta), 90);
-    }, 280);
+  function changeBy(delta: number) {
+    const current = Number(valueRef.current || 0);
+    apply(current + delta * step);
   }
 
   function stopHold() {
@@ -88,18 +84,41 @@ export default function StepperNumberInput({
     }
   }
 
+  function scheduleHold(delta: number) {
+    stopHold();
+    didLongHoldRef.current = false;
+    timeoutRef.current = setTimeout(() => {
+      didLongHoldRef.current = true;
+      changeBy(delta);
+      intervalRef.current = setInterval(() => changeBy(delta), 55);
+    }, 240);
+  }
+
+  function handleTap(delta: number) {
+    if (didLongHoldRef.current) {
+      didLongHoldRef.current = false;
+      return;
+    }
+    stopHold();
+    changeBy(delta);
+  }
+
   function handleChange(nextText: string) {
     const cleaned = nextText.replace(/[^0-9]/g, "");
     setText(cleaned);
     if (cleaned === "") {
+      valueRef.current = min;
       onChange(min);
       return;
     }
-    onChange(Math.max(min, Number(cleaned)));
+    const safe = Math.max(min, Number(cleaned));
+    valueRef.current = safe;
+    onChange(safe);
   }
 
   function handleBlur() {
     if (text === "") {
+      valueRef.current = min;
       setText(String(min));
       onChange(min);
     }
@@ -109,10 +128,11 @@ export default function StepperNumberInput({
     <View style={[styles.row, { gap }, containerStyle]}>
       <Pressable
         hitSlop={10}
-        onPressIn={() => startHold(-1)}
+        delayLongPress={240}
+        onPressIn={() => scheduleHold(-1)}
         onPressOut={stopHold}
         onTouchCancel={stopHold}
-        onPress={() => {}}
+        onPress={() => handleTap(-1)}
         style={({ pressed }) => [
           styles.control,
           borderlessControls && styles.controlBorderless,
@@ -141,10 +161,11 @@ export default function StepperNumberInput({
 
       <Pressable
         hitSlop={10}
-        onPressIn={() => startHold(1)}
+        delayLongPress={240}
+        onPressIn={() => scheduleHold(1)}
         onPressOut={stopHold}
         onTouchCancel={stopHold}
-        onPress={() => {}}
+        onPress={() => handleTap(1)}
         style={({ pressed }) => [
           styles.control,
           borderlessControls && styles.controlBorderless,

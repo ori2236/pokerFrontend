@@ -173,7 +173,7 @@ function StatusBadge({ item }: { item: ActionRow }) {
 function getActionLabel(item: ActionRow) {
   if (item.action_type === "BONUS") return "Bonus";
   if (item.session_id === null || item.session_id === undefined) {
-    return item.action_type === "BUY_IN" ? "Deposit" : "Withdraw";
+    return item.action_type === "BUY_IN" ? "Withdraw" : "Deposit";
   }
   return item.action_type === "BUY_IN" ? "Buy In" : "Cash Out";
 }

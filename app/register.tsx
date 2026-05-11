@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import {
     Alert,
     Image,
     ImageBackground,
+    Pressable,
     StyleSheet,
     Text,
+    TextInput,
     View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/context/AuthContext";
 import ScreenContainer from "../src/components/ScreenContainer";
 import ThemedCard from "../src/components/ThemedCard";
@@ -23,8 +26,17 @@ export default function RegisterScreen() {
     const { register } = useAuth();
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [profileImageBase64, setProfileImageBase64] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
+
+    const mismatchText = useMemo(() => {
+        if (!confirmPassword) return "";
+        if (password === confirmPassword) return "";
+        return "Passwords do not match";
+    }, [password, confirmPassword]);
 
     async function pickImage() {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -50,6 +62,10 @@ export default function RegisterScreen() {
     async function onRegister() {
         if (!profileImageBase64) {
             Alert.alert("Missing photo", "Please choose a profile image.");
+            return;
+        }
+
+        if (password !== confirmPassword) {
             return;
         }
 
@@ -114,19 +130,34 @@ export default function RegisterScreen() {
                         autoCapitalize="none"
                     />
 
-                    <LuxuryInput
+                    <View style={{ height: 12 }} />
+                    <SecureLuxuryField
                         label="Password"
                         placeholder="Create a password"
                         value={password}
                         onChangeText={setPassword}
-                        secureTextEntry
+                        visible={showPassword}
+                        onToggleVisibility={() => setShowPassword((prev) => !prev)}
                     />
+
+                    <View style={{ height: 12 }} />
+                    <SecureLuxuryField
+                        label="Confirm Password"
+                        placeholder="Repeat your password"
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        visible={showConfirmPassword}
+                        onToggleVisibility={() => setShowConfirmPassword((prev) => !prev)}
+                    />
+
+                    {mismatchText ? <Text style={styles.inlineError}>{mismatchText}</Text> : null}
 
                     <View style={styles.actions}>
                         <ThemedButton
                             title={submitting ? "Creating..." : "Join the Club"}
                             onPress={onRegister}
                             loading={submitting}
+                            disabled={!!mismatchText}
                         />
                         <ThemedButton
                             title="Back to Login"
@@ -137,6 +168,46 @@ export default function RegisterScreen() {
                 </ThemedCard>
             </ImageBackground>
         </ScreenContainer>
+    );
+}
+
+function SecureLuxuryField({
+    label,
+    placeholder,
+    value,
+    onChangeText,
+    visible,
+    onToggleVisibility,
+}: {
+    label: string;
+    placeholder: string;
+    value: string;
+    onChangeText: (text: string) => void;
+    visible: boolean;
+    onToggleVisibility: () => void;
+}) {
+    return (
+        <View>
+            <Text style={styles.fieldLabel}>{label}</Text>
+            <View style={styles.secureFieldWrap}>
+                <TextInput
+                    value={value}
+                    onChangeText={onChangeText}
+                    secureTextEntry={!visible}
+                    autoCapitalize="none"
+                    placeholder={placeholder}
+                    placeholderTextColor={theme.colors.muted}
+                    style={styles.secureFieldInput}
+                />
+                <Pressable onPress={onToggleVisibility} hitSlop={10} style={styles.eyeButton}>
+                    <Ionicons
+                        name={visible ? "eye-off-outline" : "eye-outline"}
+                        size={20}
+                        color={theme.colors.gold2}
+                    />
+                </Pressable>
+            </View>
+        </View>
     );
 }
 
@@ -219,6 +290,43 @@ const styles = StyleSheet.create({
         color: theme.colors.gold2,
         fontSize: 28,
         fontWeight: "900",
+    },
+    fieldLabel: {
+        color: theme.colors.gold2,
+        fontSize: 12,
+        fontWeight: "800",
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        marginBottom: 8,
+    },
+    secureFieldWrap: {
+        minHeight: 54,
+        borderRadius: theme.radius.pill,
+        borderWidth: 1.2,
+        borderColor: theme.colors.borderStrong,
+        backgroundColor: "rgba(214,179,106,0.06)",
+        flexDirection: "row",
+        alignItems: "center",
+        paddingLeft: 18,
+        paddingRight: 12,
+    },
+    secureFieldInput: {
+        flex: 1,
+        color: theme.colors.text,
+        fontSize: 16,
+        fontWeight: "700",
+        paddingVertical: 14,
+    },
+    eyeButton: {
+        width: 34,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    inlineError: {
+        color: theme.colors.danger,
+        marginTop: 10,
+        fontWeight: "700",
+        textAlign: "center",
     },
     actions: {
         marginTop: 18,

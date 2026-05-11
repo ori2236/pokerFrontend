@@ -25,6 +25,7 @@ type UserRow = {
   id: number;
   username: string;
   role: "ADMIN" | "USER";
+  balance: number;
 };
 
 const chipConfig: Array<{ key: ChipKey; label: string; value: number; image: any }> = [
@@ -53,11 +54,24 @@ export default function AdminConversionScreen() {
   });
 
   async function loadData() {
-    const usersRes = await api.get("/users");
-    setUsers(usersRes.data);
+    const [usersRes, leaderboardRes] = await Promise.all([
+      api.get("/users"),
+      api.get("/balances/leaderboard"),
+    ]);
 
-    if (!selectedUserId && usersRes.data.length > 0) {
-      setSelectedUserId(usersRes.data[0].id);
+    const balanceMap = new Map(
+      leaderboardRes.data.map((item: { id: number; balance: number }) => [item.id, Number(item.balance || 0)]),
+    );
+
+    const mergedUsers = usersRes.data.map((item: { id: number; username: string; role: "ADMIN" | "USER" }) => ({
+      ...item,
+      balance: balanceMap.get(item.id) || 0,
+    }));
+
+    setUsers(mergedUsers);
+
+    if (!selectedUserId && mergedUsers.length > 0) {
+      setSelectedUserId(mergedUsers[0].id);
     }
   }
 
@@ -101,7 +115,7 @@ export default function AdminConversionScreen() {
 
       if (mode === "TOTAL_AMOUNT") {
         if (type === "TO_CHIPS" && Number(amount) <= 0) {
-          setFeedback({ visible: true, title: "Invalid amount", message: "Deposit must be greater than 0." });
+          setFeedback({ visible: true, title: "Invalid amount", message: "Withdraw must be greater than 0." });
           return;
         }
 
@@ -159,7 +173,7 @@ export default function AdminConversionScreen() {
         <ThemedCard glow="gold" style={styles.cardSpacing}>
           <Pressable style={styles.dropdown} onPress={() => setUserPickerOpen((prev) => !prev)}>
             <Text style={[styles.dropdownText, !selectedUser && styles.dropdownTextMuted]}>
-              {selectedUser ? selectedUser.username : "Choose a member"}
+              {selectedUser ? `${selectedUser.username} · ${formatAmount(selectedUser.balance)} O²` : "Choose a member"}
             </Text>
             <Text style={styles.dropdownArrow}>{userPickerOpen ? "▲" : "▼"}</Text>
           </Pressable>
@@ -180,7 +194,7 @@ export default function AdminConversionScreen() {
                     }}
                     style={[styles.dropdownItem, active && styles.dropdownItemActive]}
                   >
-                    <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>{item.username}</Text>
+                    <Text style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}>{`${item.username} · ${formatAmount(item.balance)} O²`}</Text>
                     <Text style={styles.dropdownRole}>{item.role}</Text>
                   </Pressable>
                 );
@@ -189,8 +203,8 @@ export default function AdminConversionScreen() {
           ) : null}
 
           <View style={styles.segmentRow}>
-            <Segment active={type === "TO_CHIPS"} label="Deposit" onPress={() => setType("TO_CHIPS")} />
-            <Segment active={type === "TO_COINS"} label="Withdraw" onPress={() => setType("TO_COINS")} />
+            <Segment active={type === "TO_COINS"} label="Deposit" onPress={() => setType("TO_COINS")} />
+            <Segment active={type === "TO_CHIPS"} label="Withdraw" onPress={() => setType("TO_CHIPS")} />
           </View>
 
           <View style={styles.segmentRow}>
@@ -200,7 +214,7 @@ export default function AdminConversionScreen() {
 
           {mode === "TOTAL_AMOUNT" ? (
             <View style={styles.amountBlock}>
-              <Text style={styles.inputLabel}>{type === "TO_CHIPS" ? "Double O" : "Amount"}</Text>
+              <Text style={styles.inputLabel}>Double O</Text>
               <StepperNumberInput value={amount} onChange={setAmount} width={140} />
             </View>
           ) : (

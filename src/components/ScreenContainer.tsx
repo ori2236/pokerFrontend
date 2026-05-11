@@ -49,6 +49,7 @@ export default function ScreenContainer({
                     <ScrollView
                         contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
                         showsVerticalScrollIndicator={false}
+                        bounces={false}
                         refreshControl={
                             onRefresh ? (
                                 <RefreshControl
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 20,
-        paddingBottom: 48,
+        paddingBottom: 20,
     },
     fixedContent: {
         flex: 1,
@@ -94,7 +95,7 @@ const styles = StyleSheet.create({
     },
     cornerBottom: {
         position: "absolute",
-        bottom: 16,
+        bottom: 8,
         left: 10,
         fontSize: 92,
         color: "rgba(243,228,190,0.06)",
