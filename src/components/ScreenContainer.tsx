@@ -44,7 +44,7 @@ export default function ScreenContainer({
             style={styles.gradient}
         >
             <StatusBar style="light" />
-            <SafeAreaView style={styles.safeArea}>
+            <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
                 {scroll ? (
                     <ScrollView
                         contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
@@ -79,11 +79,12 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 20,
-        paddingBottom: 20,
+        paddingBottom: 0,
     },
     fixedContent: {
         flex: 1,
         padding: 20,
+        paddingBottom: 0,
     },
     cornerTop: {
         position: "absolute",

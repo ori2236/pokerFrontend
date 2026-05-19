@@ -20,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="admin-bonuses" />
         <Stack.Screen name="admin-requests" />
         <Stack.Screen name="cashout" />
+        <Stack.Screen name="treasure-room" />
       </Stack>
     </AuthProvider>
   );

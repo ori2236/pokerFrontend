@@ -1,11 +1,13 @@
 import { JSX, useCallback, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
 import ThemedCard from "../../src/components/ThemedCard";
 import ThemedButton from "../../src/components/ThemedButton";
 import LuxuryInput from "../../src/components/LuxuryInput";
 import AppModal from "../../src/components/AppModal";
+import ProfileAvatarWithCoins from "../../src/components/AvatarWithCoins";
+import PlayerProfileModal, { PlayerProfileEntry } from "../../src/components/PlayerProfileModal";
 import StepperNumberInput from "../../src/components/StepperNumberInput";
 import { api } from "../../src/lib/api";
 import { useAuth } from "../../src/context/AuthContext";
@@ -18,31 +20,65 @@ const blueChip = require("../../assets/chips/blue.png");
 const greenChip = require("../../assets/chips/green.png");
 const blackChip = require("../../assets/chips/black.png");
 
+type CardHandKey =
+  | "HIGH_CARD"
+  | "PAIR"
+  | "TWO_PAIR"
+  | "THREE_OF_A_KIND"
+  | "STRAIGHT"
+  | "FLUSH"
+  | "FULL_HOUSE"
+  | "FOUR_OF_A_KIND"
+  | "STRAIGHT_FLUSH"
+  | "ROYAL_FLUSH";
+
+type SelectedCoinKey = "APP" | "CARD" | "PLACE" | `SPECIAL_${number}`;
+
+type SpecialCoin = {
+  id: number;
+  title: string;
+  image_mime?: string | null;
+  image_base64?: string | null;
+  ownership_type?: "PAID" | "EXCLUSIVE" | string | null;
+  locked_forever?: boolean;
+};
+
+type UserCoinFields = {
+  card_hand?: CardHandKey | string | null;
+  selected_coin_1?: SelectedCoinKey | string | null;
+  selected_coin_2?: SelectedCoinKey | string | null;
+  is_winner_coin_holder?: boolean;
+  special_coins?: SpecialCoin[];
+};
+
 type ChipKey = "white" | "red" | "blue" | "green" | "black";
 type ChipCounts = Record<ChipKey, number>;
 type InputMode = "TOTAL_AMOUNT" | "CHIP_BREAKDOWN";
 
-type PlayingPlayer = {
+type PlayingPlayer = UserCoinFields & {
   user_id: number;
   username: string;
   profile_image_base64?: string | null;
+  secondary_profile_image_base64?: string | null;
   buy_in_total?: number;
   stack_amount?: number;
 };
 
-type WaitingBuyIn = {
+type WaitingBuyIn = UserCoinFields & {
   id: number;
   user_id: number;
   username: string;
   profile_image_base64?: string | null;
+  secondary_profile_image_base64?: string | null;
   amount_total: number;
 };
 
-type WaitingCashOut = {
+type WaitingCashOut = UserCoinFields & {
   id: number;
   user_id: number;
   username: string;
   profile_image_base64?: string | null;
+  secondary_profile_image_base64?: string | null;
   amount_total: number;
   buy_in_total?: number;
   pnl?: number;
@@ -68,12 +104,14 @@ type ActiveSession = {
   };
 };
 
-type LeaderboardEntry = {
+type LeaderboardEntry = UserCoinFields & {
   rank: number;
   id: number;
   username: string;
   balance: number;
+  todayNet?: number;
   profile_image_base64?: string | null;
+  secondary_profile_image_base64?: string | null;
 };
 
 const chipConfig: Array<{ key: ChipKey; label: string; value: number; image: any }> = [
@@ -105,6 +143,8 @@ export default function SessionScreen() {
   const [buyInSubmitting, setBuyInSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ visible: boolean; title: string; message?: string }>({ visible: false, title: "" });
   const [confirmCloseVisible, setConfirmCloseVisible] = useState(false);
+  const [addBuyInVisible, setAddBuyInVisible] = useState(false);
+  const [selectedPlayerProfile, setSelectedPlayerProfile] = useState<PlayerProfileEntry | null>(null);
 
   async function loadData() {
     const [sessionRes, leaderboardRes] = await Promise.all([
@@ -127,13 +167,43 @@ export default function SessionScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData().catch(() => {});
+      loadData().catch(() => { });
     }, []),
   );
 
   const isAdmin = user?.role === "ADMIN";
   const top3 = leaderboard.slice(0, 3);
   const myPending = activeSession?.myPendingRequest || null;
+
+  const leaderboardByUserId = useMemo(() => {
+    const map = new Map<number, LeaderboardEntry>();
+    leaderboard.forEach((entry) => map.set(entry.id, entry));
+    return map;
+  }, [leaderboard]);
+
+  function openPlayerProfileFromSession(userId: number, fallback: any) {
+    const leaderboardEntry = leaderboardByUserId.get(userId);
+
+    if (leaderboardEntry) {
+      setSelectedPlayerProfile(leaderboardEntry as PlayerProfileEntry);
+      return;
+    }
+
+    setSelectedPlayerProfile({
+      id: userId,
+      rank: 999,
+      username: fallback.username || fallback.name || "Player",
+      balance: 0,
+      todayNet: 0,
+      profile_image_base64: fallback.profile_image_base64 || fallback.image || null,
+      secondary_profile_image_base64: fallback.secondary_profile_image_base64 || null,
+      card_hand: fallback.card_hand || null,
+      selected_coin_1: fallback.selected_coin_1 || null,
+      selected_coin_2: fallback.selected_coin_2 || null,
+      is_winner_coin_holder: !!fallback.is_winner_coin_holder,
+      special_coins: fallback.special_coins || [],
+    });
+  }
 
   const waitingCashOutUserIds = useMemo(
     () => new Set((activeSession?.waitingCashOuts || []).map((item) => item.user_id)),
@@ -245,10 +315,12 @@ export default function SessionScreen() {
       await api.post("/conversion-requests", {
         type: "TO_CHIPS",
         ...payload,
+        session_add_on: isAdmin && amIPlaying,
       });
 
       setPlayerBuyInAmount(0);
       setPlayerBuyInChips(emptyChips());
+      setAddBuyInVisible(false);
       await loadData();
     } catch (error: any) {
       setFeedback({ visible: true, title: "Unable to send request", message: error?.response?.data?.message || "Failed to create request" });
@@ -272,26 +344,30 @@ export default function SessionScreen() {
 
         {!activeSession ? (
           isAdmin ? (
-            <ThemedCard glow="gold" style={styles.cardSpacing}>
-              <LuxuryInput label="Session Name" placeholder="Table name" value={sessionTitle} onChangeText={setSessionTitle} />
-              <View style={styles.spacer} />
-              <AmountEditor
-                mode={adminStartMode}
-                setMode={setAdminStartMode}
-                amount={adminStartAmount}
-                setAmount={setAdminStartAmount}
-                chips={adminStartChips}
-                setChips={setAdminStartChips}
-              />
-              <View style={styles.spacer} />
-              <ThemedButton title={loading ? "Opening..." : "Open Session"} onPress={startSession} loading={loading} />
-            </ThemedCard>
+            <>
+              <ThemedCard glow="gold" style={styles.cardSpacing}>
+                <LuxuryInput label="Session Name" placeholder="Table name" value={sessionTitle} onChangeText={setSessionTitle} />
+                <View style={styles.spacer} />
+                <AmountEditor
+                  mode={adminStartMode}
+                  setMode={setAdminStartMode}
+                  amount={adminStartAmount}
+                  setAmount={setAdminStartAmount}
+                  chips={adminStartChips}
+                  setChips={setAdminStartChips}
+                />
+                <View style={styles.spacer} />
+                <ThemedButton title={loading ? "Opening..." : "Open Session"} onPress={startSession} loading={loading} />
+              </ThemedCard>
+
+              <CasinoPodium top3={top3} onOpenProfile={(entry) => setSelectedPlayerProfile(entry as PlayerProfileEntry)} />
+            </>
           ) : (
             <>
               <ThemedCard glow="gold" style={styles.cardSpacing}>
                 <Text style={styles.emptySessionTitle}>No active session</Text>
               </ThemedCard>
-              <CasinoPodium top3={top3} />
+              <CasinoPodium top3={top3} onOpenProfile={(entry) => setSelectedPlayerProfile(entry as PlayerProfileEntry)} />
             </>
           )
         ) : (
@@ -334,10 +410,18 @@ export default function SessionScreen() {
                   key={`player-${player.user_id}`}
                   name={player.username}
                   image={player.profile_image_base64}
+                  secondaryImage={player.secondary_profile_image_base64}
                   amount={`${formatAmount(player.stack_amount || player.buy_in_total || 0)} O²`}
                   detail={`Buy in ${formatAmount(player.buy_in_total || 0)} O²`}
                   badge="IN"
                   badgeVariant="success"
+                  rank={leaderboardByUserId.get(player.user_id)?.rank}
+                  cardHand={player.card_hand}
+                  selectedCoin1={player.selected_coin_1}
+                  selectedCoin2={player.selected_coin_2}
+                  isWinnerCoinHolder={player.is_winner_coin_holder}
+                  specialCoins={player.special_coins || []}
+                  onProfilePress={() => openPlayerProfileFromSession(player.user_id, player)}
                 />
               )),
             )}
@@ -349,9 +433,18 @@ export default function SessionScreen() {
                   key={`wait-buy-${request.id}`}
                   name={request.username}
                   image={request.profile_image_base64}
+                  secondaryImage={request.secondary_profile_image_base64}
                   amount={`${formatAmount(request.amount_total)} O²`}
                   badge="PENDING"
                   badgeVariant="pending"
+                  rank={leaderboardByUserId.get(request.user_id)?.rank}
+                  cardHand={request.card_hand}
+                  selectedCoin1={request.selected_coin_1}
+                  selectedCoin2={request.selected_coin_2}
+                  isWinnerCoinHolder={request.is_winner_coin_holder}
+                  specialCoins={request.special_coins || []}
+                  onProfilePress={() => openPlayerProfileFromSession(request.user_id, request)}
+                  onPress={isAdmin ? () => router.push("/admin-requests") : undefined}
                 />
               )),
             )}
@@ -363,11 +456,20 @@ export default function SessionScreen() {
                   key={`wait-out-${request.id}`}
                   name={request.username}
                   image={request.profile_image_base64}
+                  secondaryImage={request.secondary_profile_image_base64}
                   amount={`${formatAmount(request.amount_total)} O²`}
                   detail={request.pnl === undefined ? undefined : `${request.pnl >= 0 ? "Profit" : "Loss"} ${formatSignedAmount(request.pnl)} O²`}
                   detailColor={request.pnl === undefined ? theme.colors.textSoft : request.pnl >= 0 ? theme.colors.success : theme.colors.danger}
                   badge="PENDING"
                   badgeVariant="pending"
+                  rank={leaderboardByUserId.get(request.user_id)?.rank}
+                  cardHand={request.card_hand}
+                  selectedCoin1={request.selected_coin_1}
+                  selectedCoin2={request.selected_coin_2}
+                  isWinnerCoinHolder={request.is_winner_coin_holder}
+                  specialCoins={request.special_coins || []}
+                  onProfilePress={() => openPlayerProfileFromSession(request.user_id, request)}
+                  onPress={isAdmin ? () => router.push("/admin-requests") : undefined}
                 />
               )),
             )}
@@ -387,9 +489,37 @@ export default function SessionScreen() {
               </ThemedCard>
             ) : null}
 
-            {!isAdmin && amIPlaying && myPending?.type !== "TO_COINS" ? (
+            {amIPlaying && !myPending ? (
               <ThemedCard glow="none" style={styles.cardSpacing}>
-                <ThemedButton title="Request Cash Out" onPress={() => router.push("/cashout?fromSession=1")} />
+                {isAdmin ? (
+                  <Pressable
+                    onPress={() => setAddBuyInVisible(true)}
+                    style={({ pressed }) => [styles.adminAddOnButton, pressed ? styles.addOnButtonPressed : null]}
+                  >
+                    <Text style={styles.adminAddOnButtonText}>+ Add Buy In</Text>
+                  </Pressable>
+                ) : (
+                  <View style={styles.playerActionRow}>
+                    <ThemedButton
+                      title="Request Cash Out"
+                      onPress={() => router.push("/cashout?fromSession=1")}
+                      style={styles.playerActionPrimary}
+                    />
+
+                    <Pressable
+                      onPress={() => setAddBuyInVisible(true)}
+                      style={({ pressed }) => [styles.addOnButton, pressed ? styles.addOnButtonPressed : null]}
+                    >
+                      <Text style={styles.addOnButtonText}>+ Add Buy In</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </ThemedCard>
+            ) : null}
+
+            {amIPlaying && myPending?.type === "TO_CHIPS" ? (
+              <ThemedCard glow="none" style={styles.cardSpacing}>
+                <Text style={styles.pendingInlineText}>Your add-on buy in is waiting for admin approval.</Text>
               </ThemedCard>
             ) : null}
           </>
@@ -404,6 +534,11 @@ export default function SessionScreen() {
         confirmLabel="Close"
       />
 
+      <PlayerProfileModal
+        entry={selectedPlayerProfile}
+        onClose={() => setSelectedPlayerProfile(null)}
+      />
+
       <AppModal
         visible={confirmCloseVisible}
         title="Close session?"
@@ -413,6 +548,48 @@ export default function SessionScreen() {
         confirmLabel="Confirm"
         loading={loading}
       />
+
+      <Modal visible={addBuyInVisible} transparent animationType="fade" onRequestClose={() => setAddBuyInVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAddBuyInVisible(false)} />
+          <ThemedCard glow="gold" style={styles.addBuyInModalCard}>
+            <Text style={styles.addBuyInTitle}>Add Buy In</Text>
+
+            <ScrollView
+              style={styles.addBuyInScroll}
+              contentContainerStyle={styles.addBuyInScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <AmountEditor
+                mode={playerBuyInMode}
+                setMode={setPlayerBuyInMode}
+                amount={playerBuyInAmount}
+                setAmount={setPlayerBuyInAmount}
+                chips={playerBuyInChips}
+                setChips={setPlayerBuyInChips}
+                compact
+              />
+            </ScrollView>
+
+            <View style={styles.modalButtonRow}>
+              <ThemedButton
+                title="Cancel"
+                variant="dark"
+                onPress={() => setAddBuyInVisible(false)}
+                disabled={buyInSubmitting}
+                style={styles.modalActionButton}
+              />
+              <ThemedButton
+                title={buyInSubmitting ? "Sending..." : "Send"}
+                onPress={createBuyInRequest}
+                loading={buyInSubmitting}
+                style={styles.modalActionButton}
+              />
+            </View>
+          </ThemedCard>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -434,6 +611,7 @@ function AmountEditor({
   setAmount,
   chips,
   setChips,
+  compact = false,
 }: {
   mode: InputMode;
   setMode: (value: InputMode) => void;
@@ -441,45 +619,53 @@ function AmountEditor({
   setAmount: (value: number) => void;
   chips: ChipCounts;
   setChips: (value: ChipCounts) => void;
+  compact?: boolean;
 }) {
   return (
     <View>
-      <View style={styles.segmentRow}>
-        <Segment active={mode === "TOTAL_AMOUNT"} label="Amount" onPress={() => setMode("TOTAL_AMOUNT")} />
-        <Segment active={mode === "CHIP_BREAKDOWN"} label="Chips" onPress={() => setMode("CHIP_BREAKDOWN")} />
+      <View style={[styles.segmentRow, compact && styles.segmentRowCompact]}>
+        <Segment active={mode === "TOTAL_AMOUNT"} label="Amount" onPress={() => setMode("TOTAL_AMOUNT")} compact={compact} />
+        <Segment active={mode === "CHIP_BREAKDOWN"} label="Chips" onPress={() => setMode("CHIP_BREAKDOWN")} compact={compact} />
       </View>
 
       {mode === "TOTAL_AMOUNT" ? (
-        <View style={styles.amountBlock}>
-          <StepperNumberInput value={amount} onChange={setAmount} width={140} />
+        <View style={[styles.amountBlock, compact && styles.amountBlockCompact]}>
+          <StepperNumberInput
+            value={amount}
+            onChange={setAmount}
+            width={compact ? 112 : 140}
+            controlSize={compact ? 36 : 42}
+            controlTextSize={compact ? 19 : 22}
+            inputStyle={compact ? styles.compactAmountInput : undefined}
+          />
         </View>
       ) : (
-        <View style={styles.chipStack}>
+        <View style={[styles.chipStack, compact && styles.chipStackCompact]}>
           {chipConfig.map((chip) => (
-            <View key={chip.key} style={styles.chipRow}>
-              <View style={styles.chipLeft}>
-                <Image source={chip.image} style={styles.chipImage} />
+            <View key={chip.key} style={[styles.chipRow, compact && styles.chipRowCompact]}>
+              <View style={[styles.chipLeft, compact && styles.chipLeftCompact]}>
+                <Image source={chip.image} style={[styles.chipImage, compact && styles.chipImageCompact]} />
                 <View>
-                  <Text style={styles.chipName}>{chip.label}</Text>
-                  <Text style={styles.chipValue}>{chip.value}</Text>
+                  <Text style={[styles.chipName, compact && styles.chipNameCompact]}>{chip.label}</Text>
+                  <Text style={[styles.chipValue, compact && styles.chipValueCompact]}>{chip.value}</Text>
                 </View>
               </View>
               <StepperNumberInput
                 value={chips[chip.key]}
                 onChange={(next) => setChips({ ...chips, [chip.key]: next })}
-                width={58}
-                gap={2}
-                controlSize={18}
-                controlTextSize={18}
+                width={compact ? 50 : 58}
+                gap={compact ? 0 : 2}
+                controlSize={compact ? 16 : 18}
+                controlTextSize={compact ? 16 : 18}
                 borderlessControls
-                inputStyle={styles.compactInput}
+                inputStyle={[styles.compactInput, compact && styles.compactInputTight]}
                 controlTextStyle={styles.compactControlText}
               />
             </View>
           ))}
-          <View style={styles.totalBox}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatAmount(totalFromChips(chips))} O²</Text>
+          <View style={[styles.totalBox, compact && styles.totalBoxCompact]}>
+            <Text style={[styles.totalLabel, compact && styles.totalLabelCompact]}>Total</Text>
+            <Text style={[styles.totalValue, compact && styles.totalValueCompact]}>{formatAmount(totalFromChips(chips))} O²</Text>
           </View>
         </View>
       )}
@@ -487,10 +673,10 @@ function AmountEditor({
   );
 }
 
-function Segment({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+function Segment({ active, label, onPress, compact = false }: { active: boolean; label: string; onPress: () => void; compact?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={[styles.segment, active ? styles.segmentActive : styles.segmentInactive]}>
-      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{label}</Text>
+    <Pressable onPress={onPress} style={[styles.segment, compact && styles.segmentCompact, active ? styles.segmentActive : styles.segmentInactive]}>
+      <Text style={[styles.segmentText, compact && styles.segmentTextCompact, active && styles.segmentTextActive]}>{label}</Text>
     </Pressable>
   );
 }
@@ -507,37 +693,63 @@ function MetricBox({ label, value }: { label: string; value: string }) {
 function PlayerRow({
   name,
   image,
+  secondaryImage,
   amount,
   detail,
   detailColor,
   badge,
   badgeVariant,
+  rank,
+  cardHand,
+  selectedCoin1,
+  selectedCoin2,
+  isWinnerCoinHolder,
+  specialCoins,
+  onProfilePress,
+  onPress,
 }: {
   name: string;
   image?: string | null;
+  secondaryImage?: string | null;
   amount: string;
   detail?: string;
   detailColor?: string;
   badge: string;
   badgeVariant: "success" | "pending";
+  rank?: number;
+  cardHand?: string | null;
+  selectedCoin1?: string | null;
+  selectedCoin2?: string | null;
+  isWinnerCoinHolder?: boolean;
+  specialCoins?: SpecialCoin[];
+  onProfilePress?: () => void;
+  onPress?: () => void;
 }) {
-  const avatarUri = image ? `data:image/jpeg;base64,${image}` : null;
-  return (
+  const content = (
     <ThemedCard glow="none">
       <View style={styles.playerRow}>
-        <View style={styles.playerIdentity}>
-          {avatarUri ? (
-            <Image source={{ uri: avatarUri }} style={styles.playerAvatar} />
-          ) : (
-            <View style={styles.playerAvatarFallback}>
-              <Text style={styles.playerAvatarFallbackText}>{name.slice(0, 1).toUpperCase()}</Text>
-            </View>
-          )}
+        <Pressable onPress={onProfilePress} disabled={!onProfilePress} style={styles.playerIdentity}>
+          <ProfileAvatarWithCoins
+            player={{
+              username: name,
+              rank,
+              profile_image_base64: image || null,
+              secondary_profile_image_base64: secondaryImage || null,
+              card_hand: cardHand,
+              selected_coin_1: selectedCoin1,
+              selected_coin_2: selectedCoin2,
+              is_winner_coin_holder: isWinnerCoinHolder,
+              special_coins: specialCoins || [],
+            }}
+            size={60}
+            coinSize={30}
+            winnerSize={35}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.playerName}>{name}</Text>
             {detail ? <Text style={[styles.playerDetail, detailColor ? { color: detailColor } : null]}>{detail}</Text> : null}
           </View>
-        </View>
+        </Pressable>
         <View style={styles.playerRight}>
           <Text style={styles.playerAmount}>{amount}</Text>
           <View style={[styles.stateBadge, badgeVariant === "success" ? styles.badgeIn : styles.badgePending]}>
@@ -547,9 +759,17 @@ function PlayerRow({
       </View>
     </ThemedCard>
   );
+
+  if (!onPress) return content;
+
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => (pressed ? styles.pendingPressablePressed : null)}>
+      {content}
+    </Pressable>
+  );
 }
 
-function CasinoPodium({ top3 }: { top3: LeaderboardEntry[] }) {
+function CasinoPodium({ top3, onOpenProfile }: { top3: LeaderboardEntry[]; onOpenProfile: (entry: LeaderboardEntry) => void }) {
   if (top3.length === 0) return null;
   const second = top3[1];
   const first = top3[0];
@@ -557,31 +777,29 @@ function CasinoPodium({ top3 }: { top3: LeaderboardEntry[] }) {
   return (
     <ThemedCard glow="gold" style={styles.cardSpacing}>
       <View style={styles.podiumStage}>
-        {second ? <PodiumColumn entry={second} place="2" height={110} /> : <View style={styles.podiumSpacer} />}
-        {first ? <PodiumColumn entry={first} place="1" height={148} featured /> : <View style={styles.podiumSpacer} />}
-        {third ? <PodiumColumn entry={third} place="3" height={92} /> : <View style={styles.podiumSpacer} />}
+        {second ? <PodiumColumn entry={second} place="2" height={110} onOpenProfile={onOpenProfile} /> : <View style={styles.podiumSpacer} />}
+        {first ? <PodiumColumn entry={first} place="1" height={148} featured onOpenProfile={onOpenProfile} /> : <View style={styles.podiumSpacer} />}
+        {third ? <PodiumColumn entry={third} place="3" height={92} onOpenProfile={onOpenProfile} /> : <View style={styles.podiumSpacer} />}
       </View>
     </ThemedCard>
   );
 }
 
-function PodiumColumn({ entry, place, height, featured = false }: { entry: LeaderboardEntry; place: string; height: number; featured?: boolean }) {
-  const avatarUri = entry.profile_image_base64 ? `data:image/jpeg;base64,${entry.profile_image_base64}` : null;
+function PodiumColumn({ entry, place, height, featured = false, onOpenProfile }: { entry: LeaderboardEntry; place: string; height: number; featured?: boolean; onOpenProfile: (entry: LeaderboardEntry) => void }) {
   return (
-    <View style={styles.podiumColumnWrap}>
-      {avatarUri ? (
-        <Image source={{ uri: avatarUri }} style={[styles.podiumAvatar, featured && styles.podiumAvatarFeatured]} />
-      ) : (
-        <View style={[styles.podiumAvatarFallback, featured && styles.podiumAvatarFeatured]}>
-          <Text style={styles.podiumAvatarFallbackText}>{entry.username.slice(0, 1).toUpperCase()}</Text>
-        </View>
-      )}
+    <Pressable onPress={() => onOpenProfile(entry)} style={styles.podiumColumnWrap}>
+      <ProfileAvatarWithCoins
+        player={entry}
+        size={featured ? 68 : 59}
+        coinSize={featured ? 29 : 26}
+        winnerSize={featured ? 35 : 31}
+      />
       <Text style={styles.podiumName}>{entry.username}</Text>
       <Text style={styles.podiumBalance}>{formatAmount(entry.balance)} O²</Text>
       <View style={[styles.podiumBlock, { height }, featured && styles.podiumBlockFeatured]}>
         <Text style={styles.podiumPlace}>{place}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -729,6 +947,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
+  segmentRowCompact: {
+    gap: 8,
+  },
   segment: {
     flex: 1,
     minHeight: 44,
@@ -752,13 +973,30 @@ const styles = StyleSheet.create({
   segmentTextActive: {
     color: theme.colors.gold2,
   },
+  segmentCompact: {
+    minHeight: 32,
+  },
+  segmentTextCompact: {
+    fontSize: 12,
+  },
   amountBlock: {
     marginTop: 18,
     alignItems: "center",
   },
+  amountBlockCompact: {
+    marginTop: 12,
+  },
+  compactAmountInput: {
+    minHeight: 38,
+    fontSize: 14,
+  },
   chipStack: {
     marginTop: 18,
     gap: 12,
+  },
+  chipStackCompact: {
+    marginTop: 7,
+    gap: 3,
   },
   chipRow: {
     flexDirection: "row",
@@ -766,30 +1004,53 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  chipRowCompact: {
+    minHeight: 38,
+    gap: 5,
+  },
   chipLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     flex: 1,
   },
+  chipLeftCompact: {
+    gap: 7,
+  },
   chipImage: {
     width: 52,
     height: 52,
     resizeMode: "contain",
+  },
+  chipImageCompact: {
+    width: 34,
+    height: 34,
   },
   chipName: {
     color: theme.colors.text,
     fontSize: 16,
     fontWeight: "800",
   },
+  chipNameCompact: {
+    fontSize: 12,
+  },
   chipValue: {
     color: theme.colors.textSoft,
     marginTop: 2,
+  },
+  chipValueCompact: {
+    fontSize: 10,
+    marginTop: -1,
   },
   compactInput: {
     minHeight: 34,
     fontSize: 15,
     paddingHorizontal: 8,
+  },
+  compactInputTight: {
+    minHeight: 27,
+    fontSize: 13,
+    paddingHorizontal: 5,
   },
   compactControlText: {
     fontWeight: "800",
@@ -803,6 +1064,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 4,
   },
+  totalBoxCompact: {
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+    marginTop: 1,
+  },
   totalLabel: {
     color: theme.colors.textSoft,
     fontSize: 12,
@@ -810,14 +1076,123 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1,
   },
+  totalLabelCompact: {
+    fontSize: 10,
+  },
   totalValue: {
     color: theme.colors.gold2,
     fontSize: 24,
     fontWeight: "900",
     marginTop: 6,
   },
+  totalValueCompact: {
+    fontSize: 18,
+    marginTop: 2,
+  },
   stack: {
     gap: 12,
+  },
+  playerActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  playerActionPrimary: {
+    flex: 1.25,
+  },
+  addOnButton: {
+    flex: 0.95,
+    minHeight: 50,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1.2,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: "rgba(255,255,255,0.035)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  addOnButtonPressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.985 }],
+  },
+  addOnButtonText: {
+    color: theme.colors.gold2,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  adminAddOnButton: {
+    minHeight: 52,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1.2,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: "rgba(214,179,106,0.13)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    shadowColor: theme.colors.shadowGold,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  adminAddOnButtonText: {
+    color: theme.colors.gold2,
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+
+  pendingInlineText: {
+    color: theme.colors.textSoft,
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  pendingPressablePressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.99 }],
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  addBuyInModalCard: {
+    maxHeight: "82%",
+    width: "100%",
+    paddingVertical: 16,
+  },
+  addBuyInScroll: {
+    maxHeight: 390,
+  },
+  addBuyInScrollContent: {
+    paddingBottom: 4,
+  },
+  addBuyInTitle: {
+    color: theme.colors.gold2,
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  addBuyInSubtitle: {
+    color: theme.colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  modalActionButton: {
+    flex: 1,
   },
   playerRow: {
     flexDirection: "row",
@@ -828,8 +1203,10 @@ const styles = StyleSheet.create({
   playerIdentity: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     flex: 1,
+    minWidth: 0,
+    marginLeft: 7,
   },
   playerAvatar: {
     width: 42,
@@ -856,8 +1233,9 @@ const styles = StyleSheet.create({
   },
   playerDetail: {
     color: theme.colors.textSoft,
-    marginTop: 4,
-    fontWeight: "700",
+    marginTop: 5,
+    fontSize: 14,
+    fontWeight: "800",
   },
   playerRight: {
     alignItems: "flex-end",
@@ -866,7 +1244,7 @@ const styles = StyleSheet.create({
   playerAmount: {
     color: theme.colors.gold2,
     fontWeight: "900",
-    fontSize: 22,
+    fontSize: 24,
   },
   stateBadge: {
     borderRadius: theme.radius.pill,
@@ -902,7 +1280,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    marginBottom: 8,
+    marginBottom: 6,
     borderWidth: 1.2,
     borderColor: theme.colors.borderStrong,
   },
@@ -910,7 +1288,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    marginBottom: 8,
+    marginBottom: 6,
     borderWidth: 1.2,
     borderColor: theme.colors.borderStrong,
     backgroundColor: "rgba(214,179,106,0.12)",
@@ -936,7 +1314,7 @@ const styles = StyleSheet.create({
   podiumBalance: {
     color: theme.colors.textSoft,
     marginTop: 4,
-    marginBottom: 8,
+    marginBottom: 6,
     fontSize: 12,
     textAlign: "center",
   },

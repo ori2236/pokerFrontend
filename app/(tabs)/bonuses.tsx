@@ -125,9 +125,6 @@ export default function BonusesScreen() {
         <View style={styles.header}>
           <View style={styles.headerTextBlock}>
             <Text style={styles.title}>Bonuses</Text>
-            <Text style={styles.subtitle}>
-              Complete tasks and request rewards when your balance is under {BONUS_LIMIT} O²
-            </Text>
           </View>
           <Image source={coinImage} style={styles.coin} resizeMode="contain" />
         </View>

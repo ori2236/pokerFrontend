@@ -13,9 +13,10 @@
     },
     "android": {
       "package": "com.orilevi.doubleo",
+      "icon": "./assets/images/doubleo-coin-b.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/doubleo-coin-b.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0B0F14"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
