@@ -2,6 +2,7 @@ import { JSX, useCallback, useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
+import SpinningCoin from "../../src/components/SpinningCoin";
 import ThemedCard from "../../src/components/ThemedCard";
 import ThemedButton from "../../src/components/ThemedButton";
 import LuxuryInput from "../../src/components/LuxuryInput";
@@ -10,6 +11,7 @@ import ProfileAvatarWithCoins from "../../src/components/AvatarWithCoins";
 import PlayerProfileModal, { PlayerProfileEntry } from "../../src/components/PlayerProfileModal";
 import StepperNumberInput from "../../src/components/StepperNumberInput";
 import { api } from "../../src/lib/api";
+import type { AchievementCoin } from "../../src/lib/achievementCoins";
 import { useAuth } from "../../src/context/AuthContext";
 import { formatAmount, formatSignedAmount, theme } from "../../src/theme/theme";
 
@@ -32,7 +34,7 @@ type CardHandKey =
   | "STRAIGHT_FLUSH"
   | "ROYAL_FLUSH";
 
-type SelectedCoinKey = "APP" | "CARD" | "PLACE" | `SPECIAL_${number}`;
+type SelectedCoinKey = "APP" | "CARD" | "PLACE" | `SPECIAL_${number}` | `ACHIEVEMENT_${string}`;
 
 type SpecialCoin = {
   id: number;
@@ -49,6 +51,7 @@ type UserCoinFields = {
   selected_coin_2?: SelectedCoinKey | string | null;
   is_winner_coin_holder?: boolean;
   special_coins?: SpecialCoin[];
+  achievement_coins?: AchievementCoin[];
 };
 
 type ChipKey = "white" | "red" | "blue" | "green" | "black";
@@ -202,6 +205,7 @@ export default function SessionScreen() {
       selected_coin_2: fallback.selected_coin_2 || null,
       is_winner_coin_holder: !!fallback.is_winner_coin_holder,
       special_coins: fallback.special_coins || [],
+      achievement_coins: fallback.achievement_coins || [],
     });
   }
 
@@ -339,7 +343,7 @@ export default function SessionScreen() {
       <ScreenContainer refreshing={refreshing} onRefresh={onRefresh}>
         <View style={styles.header}>
           <Text style={styles.title}>{activeSession ? activeSession.title : "Session"}</Text>
-          <Image source={coinImage} style={styles.coin} />
+          <SpinningCoin source={coinImage} size={70} style={styles.coin} />
         </View>
 
         {!activeSession ? (
@@ -421,6 +425,7 @@ export default function SessionScreen() {
                   selectedCoin2={player.selected_coin_2}
                   isWinnerCoinHolder={player.is_winner_coin_holder}
                   specialCoins={player.special_coins || []}
+                  achievementCoins={player.achievement_coins || []}
                   onProfilePress={() => openPlayerProfileFromSession(player.user_id, player)}
                 />
               )),
@@ -443,6 +448,7 @@ export default function SessionScreen() {
                   selectedCoin2={request.selected_coin_2}
                   isWinnerCoinHolder={request.is_winner_coin_holder}
                   specialCoins={request.special_coins || []}
+                  achievementCoins={request.achievement_coins || []}
                   onProfilePress={() => openPlayerProfileFromSession(request.user_id, request)}
                   onPress={isAdmin ? () => router.push("/admin-requests") : undefined}
                 />
@@ -468,6 +474,7 @@ export default function SessionScreen() {
                   selectedCoin2={request.selected_coin_2}
                   isWinnerCoinHolder={request.is_winner_coin_holder}
                   specialCoins={request.special_coins || []}
+                  achievementCoins={request.achievement_coins || []}
                   onProfilePress={() => openPlayerProfileFromSession(request.user_id, request)}
                   onPress={isAdmin ? () => router.push("/admin-requests") : undefined}
                 />
@@ -705,6 +712,7 @@ function PlayerRow({
   selectedCoin2,
   isWinnerCoinHolder,
   specialCoins,
+  achievementCoins,
   onProfilePress,
   onPress,
 }: {
@@ -722,6 +730,7 @@ function PlayerRow({
   selectedCoin2?: string | null;
   isWinnerCoinHolder?: boolean;
   specialCoins?: SpecialCoin[];
+  achievementCoins?: AchievementCoin[];
   onProfilePress?: () => void;
   onPress?: () => void;
 }) {
@@ -740,6 +749,7 @@ function PlayerRow({
               selected_coin_2: selectedCoin2,
               is_winner_coin_holder: isWinnerCoinHolder,
               special_coins: specialCoins || [],
+              achievement_coins: achievementCoins || [],
             }}
             size={60}
             coinSize={30}

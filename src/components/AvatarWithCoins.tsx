@@ -10,7 +10,18 @@ import {
   View,
 } from "react-native";
 import { theme } from "../theme/theme";
+import {
+  getAchievementCoinImage,
+  getAchievementCoinTitle,
+  normalizeAchievementCoinCode,
+} from "../lib/achievementCoins";
+import type { AchievementCoin } from "../lib/achievementCoins";
 import CoinPreviewModal from "./CoinPreviewModal";
+import {
+  PROFILE_FRAME_BASE_LAYOUT,
+  getProfileFrameFit,
+  getProfileFrameInfo,
+} from "../lib/profileFrames";
 
 const appCoinImage = require("../../assets/images/doubleo-coin.png");
 const winnerCoinImage = require("../../assets/images/winner-coin.png");
@@ -21,16 +32,10 @@ const place3CoinImage = require("../../assets/images/place-3-coin.png");
 const place4CoinImage = require("../../assets/images/place-4-coin.png");
 const place5CoinImage = require("../../assets/images/place-5-coin.png");
 
-const highCardCoinImage = require("../../assets/images/high-card-coin.png");
-const pairCoinImage = require("../../assets/images/pair-coin.png");
-const twoPairCoinImage = require("../../assets/images/two-pair-coin.png");
-const threeOfAKindCoinImage = require("../../assets/images/three-of-a-kind-coin.png");
-const straightCoinImage = require("../../assets/images/straight-coin.png");
-const flushCoinImage = require("../../assets/images/flush-coin.png");
-const fullHouseCoinImage = require("../../assets/images/full-house-coin.png");
-const fourOfAKindCoinImage = require("../../assets/images/four-of-a-kind-coin.png");
-const straightFlushCoinImage = require("../../assets/images/straight-flush-coin.png");
-const royalFlushCoinImage = require("../../assets/images/royal-flush-coin.png");
+const fullHouseCoinImage = require("../../assets/coins/full-house-coin.png");
+const fourOfAKindCoinImage = require("../../assets/coins/four-of-a-kind-coin.png");
+const straightFlushCoinImage = require("../../assets/coins/straight-flush-coin.png");
+const royalFlushCoinImage = require("../../assets/coins/royal-flush-coin.png");
 
 export type CardHandKey =
   | "HIGH_CARD"
@@ -44,7 +49,11 @@ export type CardHandKey =
   | "STRAIGHT_FLUSH"
   | "ROYAL_FLUSH";
 
-export type SelectedCoinKey = "APP" | "CARD" | "PLACE" | `SPECIAL_${number}`;
+export type SelectedCoinKey =
+  | "APP"
+  | "PLACE"
+  | `SPECIAL_${number}`
+  | `ACHIEVEMENT_${string}`;
 
 export type SpecialCoin = {
   id: number;
@@ -71,6 +80,7 @@ export type AvatarPlayer = {
   selected_coin_2?: SelectedCoinKey | string | null;
   is_winner_coin_holder?: boolean;
   special_coins?: SpecialCoin[];
+  achievement_coins?: AchievementCoin[];
 };
 
 type DisplayCoin = {
@@ -78,6 +88,16 @@ type DisplayCoin = {
   label: string;
   image: ImageSourcePropType;
   kind: "winner" | "selected";
+};
+
+// Manual tuning for the small profile coins around the avatar.
+// Change x/y when the selected coins or winner coin are too high/low or too close/far.
+// x and y are multipliers of the coin size. Positive x = right, negative x = left. Positive y = up, negative y = down.
+const AVATAR_COIN_LAYOUT = {
+  winner: { scale: 1, x: -0.4, y: 0 },
+  selectedOneOnly: { scale: 1, x: -0.75, y: 0.2 },
+  selectedFirstWithSecond: { scale: 1, x: -0.8, y: 0 },
+  selectedSecond: { scale: 1, x: -0.5, y: 0.55 },
 };
 
 type Props = {
@@ -88,6 +108,8 @@ type Props = {
   borderColor?: string;
   enableImageToggle?: boolean;
   onAvatarPress?: () => void;
+  frameScale?: number;
+  avatarImageScale?: number;
 };
 
 export default function AvatarWithCoins({
@@ -98,6 +120,8 @@ export default function AvatarWithCoins({
   borderColor = theme.colors.borderStrong,
   enableImageToggle = true,
   onAvatarPress,
+  frameScale = PROFILE_FRAME_BASE_LAYOUT.frameScale,
+  avatarImageScale = PROFILE_FRAME_BASE_LAYOUT.avatarImageScale,
 }: Props) {
   const [showSecondary, setShowSecondary] = useState(false);
   const [previewCoin, setPreviewCoin] = useState<DisplayCoin | null>(null);
@@ -105,18 +129,42 @@ export default function AvatarWithCoins({
   const flipProgress = useRef(new Animated.Value(0)).current;
 
   const hasSecondary = !!player.secondary_profile_image_base64;
-  const currentImage = showSecondary && hasSecondary
-    ? player.secondary_profile_image_base64
-    : player.profile_image_base64;
-  const avatarUri = currentImage ? `data:image/jpeg;base64,${currentImage}` : null;
+  const currentImage =
+    showSecondary && hasSecondary
+      ? player.secondary_profile_image_base64
+      : player.profile_image_base64;
+  const avatarUri = currentImage
+    ? `data:image/jpeg;base64,${currentImage}`
+    : null;
 
-  const selectedCoins = useMemo(() => getSelectedCoinsForDisplay(player), [player]);
+  const selectedCoins = useMemo(
+    () => getSelectedCoinsForDisplay(player),
+    [player],
+  );
   const firstCoin = selectedCoins[0] || null;
   const secondCoin = selectedCoins[1] || null;
   const onlyOneSelectedCoin = !!firstCoin && !secondCoin;
   const winnerCoin = player.is_winner_coin_holder
-    ? { key: "WINNER", label: "Last Session Winner", image: winnerCoinImage as ImageSourcePropType, kind: "winner" as const }
+    ? {
+        key: "WINNER",
+        label: "Last Session Winner",
+        image: winnerCoinImage as ImageSourcePropType,
+        kind: "winner" as const,
+      }
     : null;
+
+  const frameInfo = getProfileFrameInfo(player);
+  const frameSource = frameInfo.image;
+  const frameFit = getProfileFrameFit(frameInfo.level);
+  const normalizedFrameScale = Math.max(1, frameScale * frameFit.frameScale);
+  const normalizedAvatarImageScale = Math.min(1, Math.max(0.58, avatarImageScale * frameFit.avatarScale));
+  const avatarImageSize = Math.round(size * normalizedAvatarImageScale);
+  const frameSize = Math.round(size * normalizedFrameScale);
+  const frameOffset = (frameSize - size) / 2;
+  const avatarTranslateX = size * frameFit.avatarTranslateX;
+  const avatarTranslateY = size * frameFit.avatarTranslateY;
+  const frameTranslateX = size * frameFit.frameTranslateX;
+  const frameTranslateY = size * frameFit.frameTranslateY;
 
   const largestCoinSize = Math.max(coinSize, winnerSize);
   const containerWidth = size;
@@ -183,20 +231,41 @@ export default function AvatarWithCoins({
   }
 
   return (
-    <View style={{ width: containerWidth, height: containerHeight, alignItems: "center" }}>
+    <View
+      style={{
+        width: containerWidth,
+        height: containerHeight,
+        alignItems: "center",
+        overflow: "visible",
+      }}
+    >
       <Pressable
         onPress={handleAvatarPress}
         disabled={!onAvatarPress && (!enableImageToggle || !hasSecondary)}
-        style={[styles.avatarPressable, { left: avatarLeft, width: size, height: size }]}
+        style={[
+          styles.avatarPressable,
+          { left: avatarLeft, width: size, height: size },
+        ]}
       >
-        <Animated.View style={{ transform: [{ perspective: 900 }, { rotateY }, { rotateZ: flipRotateZ }, { scale: flipScale }] }}>
+        <Animated.View
+          style={{
+            transform: [
+              { perspective: 900 },
+              { translateX: avatarTranslateX },
+              { translateY: avatarTranslateY },
+              { rotateY },
+              { rotateZ: flipRotateZ },
+              { scale: flipScale },
+            ],
+          }}
+        >
           {avatarUri ? (
             <Image
               source={{ uri: avatarUri }}
               style={{
-                width: size,
-                height: size,
-                borderRadius: size / 2,
+                width: avatarImageSize,
+                height: avatarImageSize,
+                borderRadius: avatarImageSize / 2,
                 borderWidth: 1.35,
                 borderColor,
                 backgroundColor: "rgba(255,255,255,0.04)",
@@ -205,9 +274,9 @@ export default function AvatarWithCoins({
           ) : (
             <View
               style={{
-                width: size,
-                height: size,
-                borderRadius: size / 2,
+                width: avatarImageSize,
+                height: avatarImageSize,
+                borderRadius: avatarImageSize / 2,
                 borderWidth: 1.35,
                 borderColor,
                 backgroundColor: "rgba(214,179,106,0.12)",
@@ -215,7 +284,12 @@ export default function AvatarWithCoins({
                 justifyContent: "center",
               }}
             >
-              <Text style={[styles.fallbackText, { fontSize: Math.max(13, size * 0.35) }]}>
+              <Text
+                style={[
+                  styles.fallbackText,
+                  { fontSize: Math.max(13, avatarImageSize * 0.35) },
+                ]}
+              >
                 {player.username.slice(0, 1).toUpperCase()}
               </Text>
             </View>
@@ -225,9 +299,9 @@ export default function AvatarWithCoins({
             style={[
               styles.flipShine,
               {
-                width: size,
-                height: size,
-                borderRadius: size / 2,
+                width: avatarImageSize,
+                height: avatarImageSize,
+                borderRadius: avatarImageSize / 2,
                 opacity: flipShineOpacity,
               },
             ]}
@@ -235,14 +309,29 @@ export default function AvatarWithCoins({
         </Animated.View>
       </Pressable>
 
+      <View
+        pointerEvents="none"
+        style={[
+          styles.avatarFrameLayer,
+          {
+            width: frameSize,
+            height: frameSize,
+            left: avatarLeft - frameOffset + frameTranslateX,
+            top: -frameOffset + frameTranslateY,
+          },
+        ]}
+      >
+        <Image source={frameSource} style={styles.avatarFrameImage} resizeMode="contain" />
+      </View>
+
       {winnerCoin ? (
         <CoinButton
           coin={winnerCoin}
-          size={winnerSize}
+          size={Math.round(winnerSize * AVATAR_COIN_LAYOUT.winner.scale)}
           style={{
             position: "absolute",
-            left: avatarLeft - winnerSize * 0.4,
-            bottom: 0,
+            left: avatarLeft + winnerSize * AVATAR_COIN_LAYOUT.winner.x,
+            bottom: winnerSize * AVATAR_COIN_LAYOUT.winner.y,
             zIndex: 5,
           }}
           onPress={setPreviewCoin}
@@ -252,11 +341,11 @@ export default function AvatarWithCoins({
       {secondCoin ? (
         <CoinButton
           coin={{ ...secondCoin, kind: "selected" }}
-          size={coinSize}
+          size={Math.round(coinSize * AVATAR_COIN_LAYOUT.selectedSecond.scale)}
           style={{
             position: "absolute",
-            left: avatarLeft + size - coinSize * 0.5,
-            bottom: coinSize * 0.55,
+            left: avatarLeft + size + coinSize * AVATAR_COIN_LAYOUT.selectedSecond.x,
+            bottom: coinSize * AVATAR_COIN_LAYOUT.selectedSecond.y,
             zIndex: 4,
           }}
           onPress={setPreviewCoin}
@@ -266,11 +355,26 @@ export default function AvatarWithCoins({
       {firstCoin ? (
         <CoinButton
           coin={{ ...firstCoin, kind: "selected" }}
-          size={coinSize}
+          size={Math.round(
+            coinSize *
+              (onlyOneSelectedCoin
+                ? AVATAR_COIN_LAYOUT.selectedOneOnly.scale
+                : AVATAR_COIN_LAYOUT.selectedFirstWithSecond.scale),
+          )}
           style={{
             position: "absolute",
-            left: avatarLeft + size - coinSize * (onlyOneSelectedCoin ? 0.75 : 0.8),
-            bottom: onlyOneSelectedCoin ? coinSize * 0.2 : 0,
+            left:
+              avatarLeft +
+              size +
+              coinSize *
+                (onlyOneSelectedCoin
+                  ? AVATAR_COIN_LAYOUT.selectedOneOnly.x
+                  : AVATAR_COIN_LAYOUT.selectedFirstWithSecond.x),
+            bottom:
+              coinSize *
+              (onlyOneSelectedCoin
+                ? AVATAR_COIN_LAYOUT.selectedOneOnly.y
+                : AVATAR_COIN_LAYOUT.selectedFirstWithSecond.y),
             zIndex: 6,
           }}
           onPress={setPreviewCoin}
@@ -328,17 +432,17 @@ function CoinButton({
 
 export function getAllOwnedCoinsForDisplay(player: AvatarPlayer) {
   const rank = Number(player.rank || 0);
+  const cardHand = normalizeCardHand(player.card_hand);
   const coins: { key: string; label: string; image: ImageSourcePropType }[] = [
     { key: "APP", label: "App Coin", image: appCoinImage },
-    {
-      key: `CARD_${normalizeCardHand(player.card_hand)}`,
-      label: getCardHandLabel(normalizeCardHand(player.card_hand)),
-      image: getCardHandCoinSource(normalizeCardHand(player.card_hand)),
-    },
   ];
 
   if (rank >= 1 && rank <= 5) {
-    coins.push({ key: `PLACE_${rank}`, label: formatRankPlace(rank), image: getPlaceCoinSource(rank) });
+    coins.push({
+      key: `PLACE_${rank}`,
+      label: formatRankPlace(rank),
+      image: getPlaceCoinSource(rank),
+    });
   }
 
   if (player.is_winner_coin_holder) {
@@ -356,6 +460,17 @@ export function getAllOwnedCoinsForDisplay(player: AvatarPlayer) {
     });
   });
 
+  (player.achievement_coins || []).forEach((coin) => {
+    const image = getAchievementCoinImage(coin.code);
+    if (!image) return;
+
+    coins.push({
+      key: `ACHIEVEMENT_${coin.code}`,
+      label: coin.title || getAchievementCoinTitle(coin.code),
+      image,
+    });
+  });
+
   return coins;
 }
 
@@ -369,7 +484,8 @@ export function getSpecialCoinImageUri(coin: SpecialCoin | null | undefined) {
 export function getSelectedCoinsForDisplay(player: AvatarPlayer) {
   const first = normalizeSelectedCoin(player.selected_coin_1);
   const second = normalizeSelectedCoin(player.selected_coin_2);
-  const coins: { key: string; label: string; image: ImageSourcePropType }[] = [];
+  const coins: { key: string; label: string; image: ImageSourcePropType }[] =
+    [];
 
   if (first) {
     const coin = getSelectedCoin(first, player);
@@ -389,34 +505,75 @@ function getSelectedCoin(coinKey: SelectedCoinKey, player: AvatarPlayer) {
 
   if (specialMatch) {
     const coinId = Number(specialMatch[1]);
-    const specialCoin = (player.special_coins || []).find((coin) => Number(coin.id) === coinId);
+    const specialCoin = (player.special_coins || []).find(
+      (coin) => Number(coin.id) === coinId,
+    );
     const uri = getSpecialCoinImageUri(specialCoin);
 
     if (specialCoin && uri) {
-      return { key: `SPECIAL_${coinId}`, label: specialCoin.title || "Treasure Coin", image: { uri } as ImageSourcePropType };
+      return {
+        key: `SPECIAL_${coinId}`,
+        label: specialCoin.title || "Treasure Coin",
+        image: { uri } as ImageSourcePropType,
+      };
     }
 
     return null;
   }
 
-  if (coinKey === "APP") return { key: "APP", label: "App Coin", image: appCoinImage as ImageSourcePropType };
-  if (coinKey === "CARD") {
-    const hand = normalizeCardHand(player.card_hand);
-    return { key: `CARD_${hand}`, label: getCardHandLabel(hand), image: getCardHandCoinSource(hand) };
+  const achievementMatch = String(coinKey).match(/^ACHIEVEMENT_([A-Z0-9_]+)$/);
+
+  if (achievementMatch) {
+    const coinCode = normalizeAchievementCoinCode(achievementMatch[1]);
+    const achievementCoin = (player.achievement_coins || []).find(
+      (coin) => normalizeAchievementCoinCode(coin.code) === coinCode,
+    );
+    const image = getAchievementCoinImage(coinCode);
+
+    if (achievementCoin && image) {
+      return {
+        key: `ACHIEVEMENT_${coinCode}`,
+        label: achievementCoin.title || getAchievementCoinTitle(coinCode),
+        image,
+      };
+    }
+
+    return null;
   }
+
+  if (coinKey === "APP")
+    return {
+      key: "APP",
+      label: "App Coin",
+      image: appCoinImage as ImageSourcePropType,
+    };
   if (coinKey === "PLACE") {
     const rank = Number(player.rank || 0);
-    if (rank >= 1 && rank <= 5) return { key: `PLACE_${rank}`, label: formatRankPlace(rank), image: getPlaceCoinSource(rank) };
+    if (rank >= 1 && rank <= 5)
+      return {
+        key: `PLACE_${rank}`,
+        label: formatRankPlace(rank),
+        image: getPlaceCoinSource(rank),
+      };
   }
   return null;
 }
 
 export function normalizeSelectedCoin(value: any): SelectedCoinKey | null {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "APP" || normalized === "CARD" || normalized === "PLACE") return normalized;
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "APP" || normalized === "PLACE") return normalized;
 
   const specialMatch = normalized.match(/^SPECIAL_(\d+)$/);
-  if (specialMatch) return `SPECIAL_${Number(specialMatch[1])}` as SelectedCoinKey;
+  if (specialMatch)
+    return `SPECIAL_${Number(specialMatch[1])}` as SelectedCoinKey;
+
+  const achievementMatch = normalized.match(/^ACHIEVEMENT_([A-Z0-9_]+)$/);
+  if (achievementMatch) {
+    const coinCode = normalizeAchievementCoinCode(achievementMatch[1]);
+    if (coinCode) return `ACHIEVEMENT_${coinCode}` as SelectedCoinKey;
+  }
 
   return null;
 }
@@ -438,6 +595,18 @@ export function normalizeCardHand(value: any): CardHandKey {
   return validHands.includes(normalized) ? normalized : "HIGH_CARD";
 }
 
+export function isCardHandCoinEligible(
+  hand: CardHandKey | string | null | undefined,
+) {
+  const normalized = normalizeCardHand(hand);
+  return [
+    "FULL_HOUSE",
+    "FOUR_OF_A_KIND",
+    "STRAIGHT_FLUSH",
+    "ROYAL_FLUSH",
+  ].includes(normalized);
+}
+
 export function getCardHandLabel(hand: CardHandKey) {
   if (hand === "PAIR") return "Pair";
   if (hand === "TWO_PAIR") return "Two Pair";
@@ -449,19 +618,6 @@ export function getCardHandLabel(hand: CardHandKey) {
   if (hand === "STRAIGHT_FLUSH") return "Straight Flush";
   if (hand === "ROYAL_FLUSH") return "Royal Flush";
   return "High Card";
-}
-
-export function getCardHandCoinSource(hand: CardHandKey): ImageSourcePropType {
-  if (hand === "PAIR") return pairCoinImage;
-  if (hand === "TWO_PAIR") return twoPairCoinImage;
-  if (hand === "THREE_OF_A_KIND") return threeOfAKindCoinImage;
-  if (hand === "STRAIGHT") return straightCoinImage;
-  if (hand === "FLUSH") return flushCoinImage;
-  if (hand === "FULL_HOUSE") return fullHouseCoinImage;
-  if (hand === "FOUR_OF_A_KIND") return fourOfAKindCoinImage;
-  if (hand === "STRAIGHT_FLUSH") return straightFlushCoinImage;
-  if (hand === "ROYAL_FLUSH") return royalFlushCoinImage;
-  return highCardCoinImage;
 }
 
 export function getPlaceCoinSource(rank: number): ImageSourcePropType {
@@ -487,6 +643,19 @@ const styles = StyleSheet.create({
   avatarPressable: {
     position: "absolute",
     top: 0,
+    zIndex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarFrameLayer: {
+    position: "absolute",
+    zIndex: 3,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarFrameImage: {
+    width: "100%",
+    height: "100%",
   },
   coinButton: {
     alignItems: "center",

@@ -6,11 +6,14 @@ type User = {
     id: number;
     username: string;
     role: "ADMIN" | "USER";
+    profile_image_base64?: string | null;
+    secondary_profile_image_base64?: string | null;
 };
 
 type RegisterPayload = {
     username: string;
     password: string;
+    confirmPassword?: string;
     profileImageBase64: string;
 };
 

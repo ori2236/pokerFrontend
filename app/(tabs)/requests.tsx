@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
+import SpinningCoin from "../../src/components/SpinningCoin";
 import ThemedCard from "../../src/components/ThemedCard";
 import { api } from "../../src/lib/api";
 import { formatAmount, formatDateTime, theme } from "../../src/theme/theme";
@@ -82,7 +83,7 @@ export default function ActionsScreen() {
           <Text style={styles.title}>Actions</Text>
           <Text style={styles.subtitle}>Coin, bonus and balance history</Text>
         </View>
-        <Image source={coinImage} style={styles.coin} />
+        <SpinningCoin source={coinImage} size={68} style={styles.coin} />
       </View>
 
       <View style={styles.filterRow}>

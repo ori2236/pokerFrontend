@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
+import SpinningCoin from "../../src/components/SpinningCoin";
 import ThemedCard from "../../src/components/ThemedCard";
 import AvatarWithCoins, { AvatarPlayer } from "../../src/components/AvatarWithCoins";
 import PlayerProfileModal, { PlayerProfileEntry } from "../../src/components/PlayerProfileModal";
@@ -51,7 +52,7 @@ export default function LeaderboardScreen() {
       <ScreenContainer refreshing={refreshing} onRefresh={onRefresh}>
         <View style={styles.header}>
           <Text style={styles.title}>Leaderboard</Text>
-          <Image source={appCoinImage} style={styles.coin} />
+          <SpinningCoin source={appCoinImage} size={66} style={styles.coin} />
         </View>
 
         <View style={styles.stack}>

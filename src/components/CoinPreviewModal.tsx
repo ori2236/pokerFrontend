@@ -1,7 +1,16 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Image, ImageSourcePropType, Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { theme } from "../theme/theme";
+import {
+  Animated,
+  Easing,
+  Image,
+  ImageSourcePropType,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
 type Props = {
   visible: boolean;
@@ -10,38 +19,115 @@ type Props = {
   onClose: () => void;
 };
 
-export default function CoinPreviewModal({ visible, title, image, onClose }: Props) {
+const previewFrameImage = require("../../assets/images/coinPreview.png");
+
+const FRAME_WIDTH = 337;
+const FRAME_HEIGHT = 596;
+const FRAME_RATIO = FRAME_WIDTH / FRAME_HEIGHT;
+
+const CIRCLE = {
+  x: 79,
+  y: 167,
+  width: 180,
+  height: 180,
+};
+
+const TITLE_BOX = {
+  x: 41,
+  y: 420,
+  width: 255,
+  height: 84,
+};
+
+const COIN_SCALE_IN_HOLE = 1;
+
+const COIN_OFFSET_X = 0;
+const COIN_OFFSET_Y = 8;
+
+export default function CoinPreviewModal({
+  visible,
+  title,
+  image,
+  onClose,
+}: Props) {
+  const { width, height } = useWindowDimensions();
+
   const entrance = useRef(new Animated.Value(0)).current;
   const coinMotion = useRef(new Animated.Value(0)).current;
+  const shineMotion = useRef(new Animated.Value(0)).current;
+
+  const cardWidth = Math.min(width - 34, (height - 120) * FRAME_RATIO, 320);
+  const cardHeight = cardWidth / FRAME_RATIO;
+
+  const scaleX = cardWidth / FRAME_WIDTH;
+  const scaleY = cardHeight / FRAME_HEIGHT;
+
+  const circleLeft = CIRCLE.x * scaleX;
+  const circleTop = CIRCLE.y * scaleY;
+  const circleWidth = CIRCLE.width * scaleX;
+  const circleHeight = CIRCLE.height * scaleY;
+
+  const coinSize = Math.min(circleWidth, circleHeight) * COIN_SCALE_IN_HOLE;
+  const coinOffsetX = COIN_OFFSET_X * scaleX;
+  const coinOffsetY = COIN_OFFSET_Y * scaleY;
+
+  const titleLeft = TITLE_BOX.x * scaleX;
+  const titleTop = TITLE_BOX.y * scaleY;
+  const titleWidth = TITLE_BOX.width * scaleX;
+  const titleHeight = TITLE_BOX.height * scaleY;
 
   useEffect(() => {
     if (!visible) {
       entrance.setValue(0);
       coinMotion.setValue(0);
+      shineMotion.setValue(0);
       return;
     }
 
-    Animated.parallel([
-      Animated.spring(entrance, {
-        toValue: 1,
-        friction: 8,
-        tension: 74,
-        useNativeDriver: true,
-      }),
-      Animated.timing(coinMotion, {
-        toValue: 1,
-        duration: 2500,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [visible, entrance, coinMotion]);
+    const entranceAnimation = Animated.spring(entrance, {
+      toValue: 1,
+      friction: 7,
+      tension: 80,
+      useNativeDriver: true,
+    });
+
+    const coinAnimation = Animated.timing(coinMotion, {
+      toValue: 1,
+      duration: 1050,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    const shineAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shineMotion, {
+          toValue: 1,
+          duration: 2400,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1700),
+        Animated.timing(shineMotion, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    Animated.parallel([entranceAnimation, coinAnimation]).start();
+    shineAnimation.start();
+
+    return () => {
+      shineAnimation.stop();
+    };
+  }, [visible, entrance, coinMotion, shineMotion]);
 
   if (!image) return null;
 
   const cardScale = entrance.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.88, 1],
+    outputRange: [0.92, 1],
   });
 
   const cardTranslateY = entrance.interpolate({
@@ -49,84 +135,153 @@ export default function CoinPreviewModal({ visible, title, image, onClose }: Pro
     outputRange: [22, 0],
   });
 
-  const coinRotateY = coinMotion.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: ["-38deg", "24deg", "0deg"],
-  });
-
   const coinScale = coinMotion.interpolate({
-    inputRange: [0, 0.55, 1],
-    outputRange: [0.76, 1.09, 1],
+    inputRange: [0, 0.65, 1],
+    outputRange: [0.72, 1.08, 1],
   });
 
-  const crownOpacity = entrance.interpolate({
+  const coinRotateY = coinMotion.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 1],
+    outputRange: ["-38deg", "0deg"],
   });
+
+  const shineTranslateX = shineMotion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-cardWidth * 0.95, cardWidth * 0.95],
+  });
+
+  const titleFontSize = Math.max(21, cardWidth * 0.09);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-        <Animated.View style={[styles.cardHost, { opacity: entrance, transform: [{ translateY: cardTranslateY }, { scale: cardScale }] }]}>
-          <LinearGradient
-            colors={["#050403", "#151008", "#241909", "#080604"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.card}
+        <Animated.View
+          style={[
+            styles.cardWrapper,
+            {
+              width: cardWidth,
+              height: cardHeight,
+              opacity: entrance,
+              transform: [{ translateY: cardTranslateY }, { scale: cardScale }],
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.frameCanvas,
+              {
+                width: cardWidth,
+                height: cardHeight,
+              },
+            ]}
           >
-            <View style={styles.outerBorder} pointerEvents="none" />
-            <View style={styles.innerBorder} pointerEvents="none" />
-            <View style={styles.headerPlate}>
-              <Text style={styles.eyebrow}>DOUBLE O COLLECTION</Text>
-            </View>
-
-            <Animated.View style={[styles.crown, { opacity: crownOpacity }]} pointerEvents="none">
-              <Text style={styles.crownText}>◆</Text>
-              <Text style={styles.crownText}>◆</Text>
-              <Text style={styles.crownText}>◆</Text>
-            </Animated.View>
-
-            <View style={styles.stageWrap}>
-              <LinearGradient
-                colors={["#5B3910", "#F7D986", "#7A4B12", "#FFF2BD", "#9C681B"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.outerRing}
-              >
-                <LinearGradient
-                  colors={["#0B0805", "#21170C", "#090705"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.darkRing}
-                >
-                  <LinearGradient
-                    colors={["rgba(255,232,165,0.2)", "rgba(255,232,165,0.02)", "rgba(0,0,0,0.34)"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.innerStage}
-                  >
-                    <Animated.View style={{ transform: [{ perspective: 900 }, { rotateY: coinRotateY }, { scale: coinScale }] }}>
-                      <Image source={image} style={styles.coinImage} resizeMode="contain" />
-                    </Animated.View>
-                  </LinearGradient>
-                </LinearGradient>
-              </LinearGradient>
-            </View>
-
-            <LinearGradient
-              colors={["rgba(214,179,106,0.14)", "rgba(255,244,205,0.07)", "rgba(214,179,106,0.14)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.titlePlate}
+            <View
+              style={[
+                styles.coinWindow,
+                {
+                  left: circleLeft,
+                  top: circleTop,
+                  width: circleWidth,
+                  height: circleHeight,
+                  borderRadius: Math.min(circleWidth, circleHeight) / 2,
+                },
+              ]}
             >
-              <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.68}>
+              <Animated.View
+                style={[
+                  styles.coinAnimatedWrap,
+                  {
+                    width: coinSize,
+                    height: coinSize,
+                    borderRadius: coinSize / 2,
+                    transform: [
+                      { perspective: 900 },
+                      { rotateY: coinRotateY },
+                      { scale: coinScale },
+                      { translateX: coinOffsetX },
+                      { translateY: coinOffsetY },
+                    ],
+                  },
+                ]}
+              >
+                <Image
+                  source={image}
+                  resizeMode="contain"
+                  style={[
+                    styles.coinImage,
+                    {
+                      width: coinSize,
+                      height: coinSize,
+                    },
+                  ]}
+                />
+              </Animated.View>
+            </View>
+
+            <View pointerEvents="none" style={styles.frameImageWrapper}>
+              <Image
+                source={previewFrameImage}
+                resizeMode="stretch"
+                style={[
+                  styles.frameImage,
+                  {
+                    width: cardWidth,
+                    height: cardHeight,
+                  },
+                ]}
+              />
+            </View>
+
+            <View
+              pointerEvents="none"
+              style={[
+                styles.titleBox,
+                {
+                  left: titleLeft,
+                  top: titleTop,
+                  width: titleWidth,
+                  height: titleHeight,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.title,
+                  {
+                    fontSize: titleFontSize,
+                    lineHeight: titleFontSize * 1.1,
+                  },
+                ]}
+                numberOfLines={3}
+                adjustsFontSizeToFit
+                minimumFontScale={0.52}
+              >
                 {title}
               </Text>
-            </LinearGradient>
+            </View>
 
-          </LinearGradient>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.shine,
+                {
+                  height: cardHeight * 0.56,
+                  transform: [
+                    { translateX: shineTranslateX },
+                    { rotate: "18deg" },
+                  ],
+                },
+              ]}
+            />
+          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -136,119 +291,90 @@ export default function CoinPreviewModal({ visible, title, image, onClose }: Pro
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.88)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 22,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    paddingHorizontal: 12,
+    paddingVertical: 20,
   },
-  cardHost: {
-    width: "100%",
-    maxWidth: 382,
-  },
-  card: {
-    borderRadius: 34,
-    paddingTop: 28,
-    paddingBottom: 26,
-    paddingHorizontal: 22,
-    alignItems: "center",
-    overflow: "hidden",
-    borderWidth: 1.3,
-    borderColor: "rgba(255,232,165,0.9)",
+
+  cardWrapper: {
     shadowColor: "#F5C96A",
-    shadowOpacity: 0.26,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 20,
+    shadowOpacity: 0.45,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 24,
   },
-  outerBorder: {
+
+  frameCanvas: {
+    position: "relative",
+    overflow: "visible",
+  },
+
+  coinWindow: {
     position: "absolute",
-    top: 7,
-    left: 7,
-    right: 7,
-    bottom: 7,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: "rgba(255,245,205,0.18)",
-  },
-  innerBorder: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    right: 14,
-    bottom: 14,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: "rgba(214,179,106,0.16)",
-  },
-  headerPlate: {
-    borderWidth: 1,
-    borderColor: "rgba(255,232,165,0.22)",
-    backgroundColor: "rgba(255,232,165,0.055)",
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    marginBottom: 13,
-  },
-  eyebrow: {
-    color: theme.colors.gold2,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 2.1,
-  },
-  crown: {
-    flexDirection: "row",
-    gap: 14,
-    marginBottom: 9,
-  },
-  crownText: {
-    color: "rgba(255,232,165,0.7)",
-    fontSize: 9,
-  },
-  stageWrap: {
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: "#000000",
+    zIndex: 1,
   },
-  outerRing: {
-    width: 242,
-    height: 242,
-    borderRadius: 121,
+
+  coinAnimatedWrap: {
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#F5C96A",
+    shadowOpacity: 0.72,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
   },
-  darkRing: {
-    width: 226,
-    height: 226,
-    borderRadius: 113,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  innerStage: {
-    width: 203,
-    height: 203,
-    borderRadius: 102,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,245,205,0.18)",
-  },
+
   coinImage: {
-    width: 190,
-    height: 190,
+    shadowColor: "#000",
+    shadowOpacity: 0.72,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
-  titlePlate: {
-    marginTop: 22,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255,232,165,0.25)",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    minWidth: 230,
+
+  frameImageWrapper: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    zIndex: 2,
   },
+
+  frameImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  titleBox: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    zIndex: 3,
+  },
+
   title: {
-    color: theme.colors.text,
-    fontSize: 29,
-    lineHeight: 34,
+    color: "#FFFFFF",
     fontWeight: "900",
     textAlign: "center",
+    writingDirection: "auto",
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.95)",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 3 },
+    letterSpacing: 0.2,
+  },
+
+  shine: {
+    position: "absolute",
+    top: "16%",
+    width: 40,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    opacity: 0.38,
+    zIndex: 4,
   },
 });

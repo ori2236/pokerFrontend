@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -12,33 +12,37 @@ import {
 import { useFocusEffect, useRouter, type Href } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import ScreenContainer from "../../src/components/ScreenContainer";
+import SpinningCoin from "../../src/components/SpinningCoin";
 import ThemedCard from "../../src/components/ThemedCard";
 import ThemedButton from "../../src/components/ThemedButton";
 import AppModal from "../../src/components/AppModal";
 import LuxuryInput from "../../src/components/LuxuryInput";
 import AvatarWithCoins from "../../src/components/AvatarWithCoins";
+import CoinPreviewModal from "../../src/components/CoinPreviewModal";
+import {
+    ADMIN_ACHIEVEMENT_COIN_CATALOG,
+    getAchievementCoinImage,
+    getAchievementCoinTitle,
+    normalizeAchievementCoinCode,
+} from "../../src/lib/achievementCoins";
+import type { AchievementCoin, AchievementCoinCode } from "../../src/lib/achievementCoins";
 import { api } from "../../src/lib/api";
 import { getProfileCache, setProfileCache } from "../../src/lib/profileCache";
 import { useAuth } from "../../src/context/AuthContext";
 import { formatAmount, formatShortDate, theme } from "../../src/theme/theme";
 
 const appCoinImage = require("../../assets/images/doubleo-coin.png");
+const winnerCoinImage = require("../../assets/images/winner-coin.png");
 const place1CoinImage = require("../../assets/images/place-1-coin.png");
 const place2CoinImage = require("../../assets/images/place-2-coin.png");
 const place3CoinImage = require("../../assets/images/place-3-coin.png");
 const place4CoinImage = require("../../assets/images/place-4-coin.png");
 const place5CoinImage = require("../../assets/images/place-5-coin.png");
 
-const highCardCoinImage = require("../../assets/images/high-card-coin.png");
-const pairCoinImage = require("../../assets/images/pair-coin.png");
-const twoPairCoinImage = require("../../assets/images/two-pair-coin.png");
-const threeOfAKindCoinImage = require("../../assets/images/three-of-a-kind-coin.png");
-const straightCoinImage = require("../../assets/images/straight-coin.png");
-const flushCoinImage = require("../../assets/images/flush-coin.png");
-const fullHouseCoinImage = require("../../assets/images/full-house-coin.png");
-const fourOfAKindCoinImage = require("../../assets/images/four-of-a-kind-coin.png");
-const straightFlushCoinImage = require("../../assets/images/straight-flush-coin.png");
-const royalFlushCoinImage = require("../../assets/images/royal-flush-coin.png");
+const fullHouseCoinImage = require("../../assets/coins/full-house-coin.png");
+const fourOfAKindCoinImage = require("../../assets/coins/four-of-a-kind-coin.png");
+const straightFlushCoinImage = require("../../assets/coins/straight-flush-coin.png");
+const royalFlushCoinImage = require("../../assets/coins/royal-flush-coin.png");
 
 type CardHandKey =
     | "HIGH_CARD"
@@ -52,7 +56,7 @@ type CardHandKey =
     | "STRAIGHT_FLUSH"
     | "ROYAL_FLUSH";
 
-type SelectedCoinKey = "APP" | "CARD" | "PLACE" | `SPECIAL_${number}`;
+type SelectedCoinKey = "APP" | "PLACE" | `SPECIAL_${number}` | `ACHIEVEMENT_${string}`;
 
 type UserRow = {
     id: number;
@@ -65,6 +69,7 @@ type UserRow = {
     selected_coin_2?: SelectedCoinKey | string | null;
     is_winner_coin_holder?: boolean;
     special_coins?: SpecialCoin[];
+    achievement_coins?: AchievementCoin[];
 };
 
 type LeaderboardUser = {
@@ -80,6 +85,7 @@ type LeaderboardUser = {
     selected_coin_2?: SelectedCoinKey | string | null;
     is_winner_coin_holder?: boolean;
     special_coins?: SpecialCoin[];
+    achievement_coins?: AchievementCoin[];
 };
 
 type DailySummary = {
@@ -113,12 +119,6 @@ const CARD_HANDS: {
     label: string;
     image: any;
 }[] = [
-        { key: "HIGH_CARD", label: "High Card", image: highCardCoinImage },
-        { key: "PAIR", label: "Pair", image: pairCoinImage },
-        { key: "TWO_PAIR", label: "Two Pair", image: twoPairCoinImage },
-        { key: "THREE_OF_A_KIND", label: "Three of a Kind", image: threeOfAKindCoinImage },
-        { key: "STRAIGHT", label: "Straight", image: straightCoinImage },
-        { key: "FLUSH", label: "Flush", image: flushCoinImage },
         { key: "FULL_HOUSE", label: "Full House", image: fullHouseCoinImage },
         { key: "FOUR_OF_A_KIND", label: "Four of a Kind", image: fourOfAKindCoinImage },
         { key: "STRAIGHT_FLUSH", label: "Straight Flush", image: straightFlushCoinImage },
@@ -143,11 +143,17 @@ export default function ProfileScreen() {
 
     const [activeCoinSlot, setActiveCoinSlot] = useState<1 | 2>(1);
     const [savingSelection, setSavingSelection] = useState(false);
+    const [previewCoin, setPreviewCoin] = useState<{ label: string; image: any } | null>(null);
 
     const [cardManagerVisible, setCardManagerVisible] = useState(false);
     const [selectedAdminUserId, setSelectedAdminUserId] = useState<number | null>(null);
-    const [selectedAdminHand, setSelectedAdminHand] = useState<CardHandKey>("HIGH_CARD");
+    const [selectedAdminHand, setSelectedAdminHand] = useState<CardHandKey>("FULL_HOUSE");
     const [savingCardHand, setSavingCardHand] = useState(false);
+
+    const [achievementManagerVisible, setAchievementManagerVisible] = useState(false);
+    const [selectedAchievementUserId, setSelectedAchievementUserId] = useState<number | null>(null);
+    const [selectedAchievementCode, setSelectedAchievementCode] = useState<AchievementCoinCode>("AA_WIN");
+    const [savingAchievementCoinCode, setSavingAchievementCoinCode] = useState<AchievementCoinCode | null>(null);
 
     const [deleteManagerVisible, setDeleteManagerVisible] = useState(false);
     const [selectedDeleteUserId, setSelectedDeleteUserId] = useState<number | null>(null);
@@ -234,18 +240,11 @@ export default function ProfileScreen() {
     const isAdmin = user?.role === "ADMIN";
 
     const availableCoins = useMemo<CoinOption[]>(() => {
-        const cardHand = normalizeCardHand(profile?.card_hand);
-
         const coins: CoinOption[] = [
             {
                 key: "APP",
                 label: "App Coin",
                 image: appCoinImage,
-            },
-            {
-                key: "CARD",
-                label: getCardHandLabel(cardHand),
-                image: getCardHandCoinSource(cardHand),
             },
         ];
 
@@ -267,8 +266,29 @@ export default function ProfileScreen() {
             });
         });
 
+        (profile?.achievement_coins || []).forEach((coin) => {
+            const image = getAchievementCoinImage(coin.code);
+            if (!image) return;
+
+            coins.push({
+                key: `ACHIEVEMENT_${coin.code}` as SelectedCoinKey,
+                label: coin.title || getAchievementCoinTitle(coin.code),
+                image,
+            });
+        });
+
         return coins;
-    }, [profile?.card_hand, profile?.special_coins, myRank]);
+    }, [profile?.special_coins, profile?.achievement_coins, myRank]);
+
+    const coinRows = useMemo(() => {
+        const rows: CoinOption[][] = [];
+
+        for (let index = 0; index < availableCoins.length; index += 3) {
+            rows.push(availableCoins.slice(index, index + 3));
+        }
+
+        return rows;
+    }, [availableCoins]);
 
     const selectedCoin1 = normalizeSelectedCoin(profile?.selected_coin_1);
     const selectedCoin2 = normalizeSelectedCoin(profile?.selected_coin_2);
@@ -357,13 +377,13 @@ export default function ProfileScreen() {
     function openCardManager() {
         const firstUser = users[0] || null;
         setSelectedAdminUserId(firstUser?.id || null);
-        setSelectedAdminHand(normalizeCardHand(firstUser?.card_hand));
+        setSelectedAdminHand(normalizeAdminCardHand(firstUser?.card_hand));
         setCardManagerVisible(true);
     }
 
     function onSelectAdminUser(selectedUser: UserRow) {
         setSelectedAdminUserId(selectedUser.id);
-        setSelectedAdminHand(normalizeCardHand(selectedUser.card_hand));
+        setSelectedAdminHand(normalizeAdminCardHand(selectedUser.card_hand));
     }
 
     async function saveCardHand() {
@@ -398,6 +418,60 @@ export default function ProfileScreen() {
             setSavingCardHand(false);
         }
     }
+
+    function openAchievementManager() {
+        const firstUser = users[0] || null;
+        setSelectedAchievementUserId(firstUser?.id || null);
+        setSelectedAchievementCode(ADMIN_ACHIEVEMENT_COIN_CATALOG[0]?.code || "AA_WIN");
+        setSavingAchievementCoinCode(null);
+        setAchievementManagerVisible(true);
+    }
+
+    function userOwnsAchievementCoin(userId: number | null, coinCode: AchievementCoinCode) {
+        const selectedUser = users.find((entry) => entry.id === userId) || null;
+        return (selectedUser?.achievement_coins || []).some(
+            (coin) => normalizeAchievementCoinCode(coin.code) === coinCode,
+        );
+    }
+
+    async function toggleAchievementCoin(coinCode: AchievementCoinCode) {
+        if (!selectedAchievementUserId) {
+            setFeedback({
+                visible: true,
+                title: "No user selected",
+                message: "Choose a user first.",
+            });
+            return;
+        }
+
+        const targetUserId = selectedAchievementUserId;
+        const alreadyOwned = userOwnsAchievementCoin(targetUserId, coinCode);
+
+        try {
+            setSelectedAchievementCode(coinCode);
+            setSavingAchievementCoinCode(coinCode);
+
+            if (alreadyOwned) {
+                await api.delete(`/achievement-coins/users/${targetUserId}/${coinCode}`);
+            } else {
+                await api.post(`/achievement-coins/users/${targetUserId}/grant`, {
+                    coinCode,
+                });
+            }
+
+            await loadData();
+            setSelectedAchievementUserId(targetUserId);
+        } catch (error: any) {
+            setFeedback({
+                visible: true,
+                title: alreadyOwned ? "Could not remove coin" : "Could not award coin",
+                message: error?.response?.data?.message || "Please try again.",
+            });
+        } finally {
+            setSavingAchievementCoinCode(null);
+        }
+    }
+
 
     function openDeleteManager() {
         const firstUser = users.find((item) => item.role !== "ADMIN" && item.id !== user?.id) || null;
@@ -557,6 +631,35 @@ export default function ProfileScreen() {
         }
     }
 
+    async function resetManagedUserPassword() {
+        if (!selectedDeleteUserId) {
+            setFeedback({
+                visible: true,
+                title: "No user selected",
+                message: "Choose a user first.",
+            });
+            return;
+        }
+
+        try {
+            setResettingPassword(true);
+            await api.post(`/users/${selectedDeleteUserId}/reset-password`);
+            setFeedback({
+                visible: true,
+                title: "Password reset",
+                message: "The user's password is now 123456.",
+            });
+        } catch (error: any) {
+            setFeedback({
+                visible: true,
+                title: "Could not reset password",
+                message: error?.response?.data?.message || "Please try again.",
+            });
+        } finally {
+            setResettingPassword(false);
+        }
+    }
+
 
 
     return (
@@ -576,6 +679,7 @@ export default function ProfileScreen() {
                                 selected_coin_2: profile?.selected_coin_2,
                                 is_winner_coin_holder: profile?.is_winner_coin_holder,
                                 special_coins: profile?.special_coins || [],
+                                achievement_coins: profile?.achievement_coins || [],
                             }}
                             size={92}
                             coinSize={38}
@@ -586,7 +690,7 @@ export default function ProfileScreen() {
                             <Text style={styles.name}>{profile?.username || user?.username}</Text>
                         </View>
 
-                        <Image source={appCoinImage} style={styles.coin} />
+                        <SpinningCoin source={appCoinImage} size={56} style={styles.coin} />
                     </View>
 
                     <View style={styles.statsRow}>
@@ -631,22 +735,39 @@ export default function ProfileScreen() {
                             />
                         </View>
 
-                        <View style={styles.coinsGrid}>
-                            {availableCoins.map((coin) => {
-                                const selectionIndex =
-                                    selectedCoin1 === coin.key ? 1 : selectedCoin2 === coin.key ? 2 : null;
+                        {profile?.is_winner_coin_holder ? (
+                            <View style={styles.winnerInfoBox}>
+                                <Image source={winnerCoinImage} style={styles.winnerInfoCoin} resizeMode="contain" />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.winnerInfoTitle}>Last Session Winner</Text>
+                                    <Text style={styles.winnerInfoText}>
+                                        You currently hold the winner coin from the latest finished session.
+                                    </Text>
+                                </View>
+                            </View>
+                        ) : null}
 
-                                return (
-                                    <AchievementCoin
-                                        key={coin.key}
-                                        label={coin.label}
-                                        image={coin.image}
-                                        selectionIndex={selectionIndex}
-                                        activeSlot={activeCoinSlot}
-                                        onPress={() => chooseCoinForActiveSlot(coin.key)}
-                                    />
-                                );
-                            })}
+                        <View style={styles.coinsGrid}>
+                            {coinRows.map((row, rowIndex) => (
+                                <View key={`coin-row-${rowIndex}`} style={styles.coinsGridRow}>
+                                    {row.map((coin) => {
+                                        const selectionIndex =
+                                            selectedCoin1 === coin.key ? 1 : selectedCoin2 === coin.key ? 2 : null;
+
+                                        return (
+                                            <View key={coin.key} style={styles.achievementCoinCell}>
+                                                <AchievementCoin
+                                                    label={coin.label}
+                                                    image={coin.image}
+                                                    selectionIndex={selectionIndex}
+                                                    onPress={() => chooseCoinForActiveSlot(coin.key)}
+                                                    onLongPress={() => setPreviewCoin({ label: coin.label, image: coin.image })}
+                                                />
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            ))}
                         </View>
 
 
@@ -696,9 +817,9 @@ export default function ProfileScreen() {
                                 />
 
                                 <ThemedButton
-                                    title="Manage Card Coins"
+                                    title="Manage Player Coins"
                                     variant="dark"
-                                    onPress={openCardManager}
+                                    onPress={openAchievementManager}
                                 />
 
                                 <ThemedButton
@@ -708,13 +829,7 @@ export default function ProfileScreen() {
                                 />
 
                                 <ThemedButton
-                                    title="Reset User Password"
-                                    variant="dark"
-                                    onPress={openPasswordTools}
-                                />
-
-                                <ThemedButton
-                                    title="Delete User"
+                                    title="Manage Users"
                                     variant="dark"
                                     onPress={openDeleteManager}
                                 />
@@ -759,16 +874,15 @@ export default function ProfileScreen() {
                 </View>
             </ScreenContainer>
 
-            <CardManagerModal
-                visible={cardManagerVisible}
+            <AchievementManagerModal
+                visible={achievementManagerVisible}
                 users={users}
-                selectedUserId={selectedAdminUserId}
-                selectedHand={selectedAdminHand}
-                saving={savingCardHand}
-                onClose={() => setCardManagerVisible(false)}
-                onSelectUser={onSelectAdminUser}
-                onSelectHand={setSelectedAdminHand}
-                onSave={saveCardHand}
+                selectedUserId={selectedAchievementUserId}
+                selectedCode={selectedAchievementCode}
+                savingCode={savingAchievementCoinCode}
+                onClose={() => setAchievementManagerVisible(false)}
+                onSelectUser={(selectedUser) => setSelectedAchievementUserId(selectedUser.id)}
+                onToggleCoin={toggleAchievementCoin}
             />
 
             <UserToolsModal
@@ -793,10 +907,19 @@ export default function ProfileScreen() {
                 selectedUserId={selectedDeleteUserId}
                 adminPassword={adminPasswordForDelete}
                 deleting={deletingUser}
+                resettingPassword={resettingPassword}
                 onClose={() => setDeleteManagerVisible(false)}
                 onSelectUser={(selectedUser) => setSelectedDeleteUserId(selectedUser.id)}
                 onChangePassword={setAdminPasswordForDelete}
+                onResetPassword={resetManagedUserPassword}
                 onDelete={deleteSelectedUser}
+            />
+
+            <CoinPreviewModal
+                visible={!!previewCoin}
+                title={previewCoin?.label || "Coin"}
+                image={previewCoin?.image || null}
+                onClose={() => setPreviewCoin(null)}
             />
 
             <AppModal
@@ -870,18 +993,35 @@ function AchievementCoin({
     label,
     image,
     selectionIndex,
-    activeSlot,
     onPress,
+    onLongPress,
 }: {
     label: string;
     image: any;
     selectionIndex: 1 | 2 | null;
-    activeSlot: 1 | 2;
     onPress: () => void;
+    onLongPress?: () => void;
 }) {
+    const longPressHandled = useRef(false);
+
     return (
         <Pressable
-            onPress={onPress}
+            delayLongPress={360}
+            onLongPress={() => {
+                longPressHandled.current = true;
+                onLongPress?.();
+            }}
+            onPress={() => {
+                if (longPressHandled.current) return;
+                onPress();
+            }}
+            onPressOut={() => {
+                if (!longPressHandled.current) return;
+
+                setTimeout(() => {
+                    longPressHandled.current = false;
+                }, 90);
+            }}
             style={[
                 styles.achievementCoinWrap,
                 selectionIndex === 1 ? styles.achievementCoinSelectedGold : null,
@@ -905,7 +1045,6 @@ function AchievementCoin({
                 </View>
             ) : null}
 
-            {!selectionIndex ? <Text style={styles.setAsText}>Set {activeSlot}</Text> : null}
         </Pressable>
     );
 }
@@ -1080,9 +1219,11 @@ function DeleteUserModal({
     selectedUserId,
     adminPassword,
     deleting,
+    resettingPassword,
     onClose,
     onSelectUser,
     onChangePassword,
+    onResetPassword,
     onDelete,
 }: {
     visible: boolean;
@@ -1090,9 +1231,11 @@ function DeleteUserModal({
     selectedUserId: number | null;
     adminPassword: string;
     deleting: boolean;
+    resettingPassword: boolean;
     onClose: () => void;
     onSelectUser: (user: UserRow) => void;
     onChangePassword: (value: string) => void;
+    onResetPassword: () => void;
     onDelete: () => void;
 }) {
     const [userPickerOpen, setUserPickerOpen] = useState(false);
@@ -1103,11 +1246,14 @@ function DeleteUserModal({
             <View style={styles.adminModalOverlay}>
                 <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-                <View style={styles.adminModalCard}>
+                <View style={[styles.adminModalCard, styles.userManagerCard]}>
                     <View style={styles.adminModalHeader}>
-                        <View>
+                        <View style={{ flex: 1 }}>
                             <Text style={styles.adminModalEyebrow}>ADMIN TOOL</Text>
-                            <Text style={styles.adminModalTitle}>Delete User</Text>
+                            <Text style={styles.adminModalTitle}>Manage Users</Text>
+                            <Text style={styles.adminModalDescription}>
+                                Reset a player password or remove a player from the active app lists.
+                            </Text>
                         </View>
 
                         <Pressable onPress={onClose} style={styles.adminCloseButton}>
@@ -1115,14 +1261,173 @@ function DeleteUserModal({
                         </Pressable>
                     </View>
 
-                    <Text style={styles.deleteWarningText}>
-                        The user will disappear from lists and will be logged out. History stays saved.
-                    </Text>
+                    <ScrollView
+                        style={styles.adminModalScroll}
+                        contentContainerStyle={styles.adminModalScrollContent}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                    >
+                        <Text style={styles.adminModalSectionTitle}>Choose user</Text>
+                        <Pressable style={styles.dropdown} onPress={() => setUserPickerOpen((prev) => !prev)}>
+                            <Text style={[styles.dropdownText, !selectedUser && styles.dropdownTextMuted]}>
+                                {selectedUser ? selectedUser.username : "Choose a user"}
+                            </Text>
+                            <Text style={styles.dropdownArrow}>{userPickerOpen ? "▲" : "▼"}</Text>
+                        </Pressable>
 
-                    <Text style={styles.adminModalSectionTitle}>Choose user</Text>
+                        {userPickerOpen ? (
+                            <View style={styles.dropdownList}>
+                                <ScrollView nestedScrollEnabled style={{ maxHeight: 190 }}>
+                                    {users.map((item) => {
+                                        const active = item.id === selectedUserId;
+                                        return (
+                                            <Pressable
+                                                key={item.id}
+                                                onPress={() => {
+                                                    onSelectUser(item);
+                                                    setUserPickerOpen(false);
+                                                }}
+                                                style={[styles.dropdownItem, active && styles.dropdownItemActive]}
+                                            >
+                                                <Text
+                                                    style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {item.username}
+                                                </Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
+                        ) : null}
+
+                        <View style={styles.userManagerSectionCard}>
+                            <View style={styles.userManagerSectionHeader}>
+                                <View style={styles.userManagerIconBubble}>
+                                    <Text style={styles.userManagerIconText}>↻</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.adminActionTitle}>Reset password</Text>
+                                    <Text style={styles.adminActionText}>
+                                        Sets the selected player's password to 123456 and logs them out.
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.resetPasswordLuxuryBoxCompact}>
+                                <Text style={styles.resetPasswordLuxuryCodeCompact}>123456</Text>
+                                <Text style={styles.resetPasswordLuxurySub}>Temporary password</Text>
+                            </View>
+
+                            <Pressable
+                                onPress={onResetPassword}
+                                disabled={resettingPassword}
+                                style={[styles.resetPasswordButton, resettingPassword ? styles.saveHandButtonDisabled : null]}
+                            >
+                                {resettingPassword ? (
+                                    <ActivityIndicator size="small" color="#1A1208" />
+                                ) : (
+                                    <Text style={styles.resetPasswordButtonText}>Reset Password</Text>
+                                )}
+                            </Pressable>
+                        </View>
+
+                        <View style={[styles.userManagerSectionCard, styles.deleteDangerZone]}>
+                            <View style={styles.userManagerSectionHeader}>
+                                <View style={[styles.userManagerIconBubble, styles.userManagerDangerIconBubble]}>
+                                    <Text style={[styles.userManagerIconText, styles.userManagerDangerIconText]}>!</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.deleteDangerTitle}>Delete user</Text>
+                                    <Text style={styles.deleteWarningText}>
+                                        The user will disappear from lists and will be logged out. History stays saved.
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <LuxuryInput
+                                label="Admin Password"
+                                placeholder="Enter your password"
+                                value={adminPassword}
+                                onChangeText={onChangePassword}
+                                secureTextEntry
+                            />
+
+                            <Pressable
+                                onPress={onDelete}
+                                disabled={deleting}
+                                style={[styles.deleteUserButton, deleting ? styles.saveHandButtonDisabled : null]}
+                            >
+                                {deleting ? (
+                                    <ActivityIndicator size="small" color={theme.colors.danger} />
+                                ) : (
+                                    <Text style={styles.deleteUserButtonText}>Delete User</Text>
+                                )}
+                            </Pressable>
+                        </View>
+                    </ScrollView>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+function AchievementManagerModal({
+    visible,
+    users,
+    selectedUserId,
+    selectedCode,
+    savingCode,
+    onClose,
+    onSelectUser,
+    onToggleCoin,
+}: {
+    visible: boolean;
+    users: UserRow[];
+    selectedUserId: number | null;
+    selectedCode: AchievementCoinCode;
+    savingCode: AchievementCoinCode | null;
+    onClose: () => void;
+    onSelectUser: (user: UserRow) => void;
+    onToggleCoin: (code: AchievementCoinCode) => void;
+}) {
+    const [userPickerOpen, setUserPickerOpen] = useState(false);
+    const selectedUser = users.find((entry) => entry.id === selectedUserId) || null;
+    const ownedCodes = useMemo(() => {
+        const codes = new Set<AchievementCoinCode>();
+        (selectedUser?.achievement_coins || []).forEach((coin) => {
+            const normalized = normalizeAchievementCoinCode(coin.code);
+            if (normalized) codes.add(normalized);
+        });
+        return codes;
+    }, [selectedUser]);
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={styles.adminModalOverlay}>
+                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
+                <View style={styles.adminModalCard}>
+                    <View style={styles.adminModalHeader}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.adminModalEyebrow}>ADMIN TOOL</Text>
+                            <Text style={styles.adminModalTitle}>Manage Player Coins</Text>
+                            <Text style={styles.adminModalDescription}>
+                                Tap a coin to award it. Tap an owned coin again to remove it.
+                            </Text>
+                        </View>
+
+                        <Pressable onPress={onClose} style={styles.adminCloseButton}>
+                            <Text style={styles.adminCloseButtonText}>×</Text>
+                        </Pressable>
+                    </View>
+
+                    <Text style={styles.adminModalSectionTitle}>Choose player</Text>
+
                     <Pressable style={styles.dropdown} onPress={() => setUserPickerOpen((prev) => !prev)}>
                         <Text style={[styles.dropdownText, !selectedUser && styles.dropdownTextMuted]}>
-                            {selectedUser ? selectedUser.username : "Choose a user"}
+                            {selectedUser ? selectedUser.username : "Choose a member"}
                         </Text>
                         <Text style={styles.dropdownArrow}>{userPickerOpen ? "▲" : "▼"}</Text>
                     </Pressable>
@@ -1132,6 +1437,7 @@ function DeleteUserModal({
                             <ScrollView nestedScrollEnabled style={{ maxHeight: 210 }}>
                                 {users.map((item) => {
                                     const active = item.id === selectedUserId;
+
                                     return (
                                         <Pressable
                                             key={item.id}
@@ -1142,7 +1448,10 @@ function DeleteUserModal({
                                             style={[styles.dropdownItem, active && styles.dropdownItemActive]}
                                         >
                                             <Text
-                                                style={[styles.dropdownItemText, active && styles.dropdownItemTextActive]}
+                                                style={[
+                                                    styles.dropdownItemText,
+                                                    active && styles.dropdownItemTextActive,
+                                                ]}
                                                 numberOfLines={1}
                                             >
                                                 {item.username}
@@ -1154,27 +1463,54 @@ function DeleteUserModal({
                         </View>
                     ) : null}
 
-                    <View style={{ marginTop: 14 }}>
-                        <LuxuryInput
-                            label="Admin Password"
-                            placeholder="Enter your password"
-                            value={adminPassword}
-                            onChangeText={onChangePassword}
-                            secureTextEntry
-                        />
-                    </View>
+                    <Text style={styles.adminModalSectionTitle}>Player coins</Text>
 
-                    <Pressable
-                        onPress={onDelete}
-                        disabled={deleting}
-                        style={[styles.deleteUserButton, deleting ? styles.saveHandButtonDisabled : null]}
-                    >
-                        {deleting ? (
-                            <ActivityIndicator size="small" color="#1A1208" />
-                        ) : (
-                            <Text style={styles.deleteUserButtonText}>Delete User</Text>
-                        )}
-                    </Pressable>
+                    <ScrollView style={styles.handsScroll} showsVerticalScrollIndicator={false}>
+                        <View style={styles.handsGrid}>
+                            {ADMIN_ACHIEVEMENT_COIN_CATALOG.map((coin) => {
+                                const owned = ownedCodes.has(coin.code);
+                                const loading = savingCode === coin.code;
+
+                                return (
+                                    <Pressable
+                                        key={coin.code}
+                                        onPress={() => onToggleCoin(coin.code)}
+                                        disabled={!!savingCode}
+                                        style={[
+                                            styles.handOption,
+                                            owned ? styles.handOptionSelected : null,
+                                            selectedCode === coin.code && !owned ? styles.handOptionFocused : null,
+                                            savingCode && savingCode !== coin.code ? styles.handOptionDisabled : null,
+                                        ]}
+                                    >
+                                        <View style={styles.coinOwnedBadgeWrap}>
+                                            {loading ? (
+                                                <ActivityIndicator size="small" color={theme.colors.gold2} />
+                                            ) : owned ? (
+                                                <View style={styles.coinOwnedBadge}>
+                                                    <Text style={styles.coinOwnedBadgeText}>✓</Text>
+                                                </View>
+                                            ) : (
+                                                <View style={styles.coinNotOwnedBadge}>
+                                                    <Text style={styles.coinNotOwnedBadgeText}>+</Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                        <Image source={coin.image} style={styles.handCoin} resizeMode="contain" />
+                                        <Text
+                                            style={[styles.handLabel, owned ? styles.handLabelSelected : null]}
+                                            numberOfLines={2}
+                                        >
+                                            {coin.title}
+                                        </Text>
+                                        <Text style={styles.coinToggleHint} numberOfLines={1}>
+                                            {owned ? "Owned" : "Tap to add"}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </ScrollView>
                 </View>
             </View>
         </Modal>
@@ -1338,7 +1674,7 @@ function normalizeCardHand(value: any): CardHandKey {
 function normalizeSelectedCoin(value: any): SelectedCoinKey | null {
     const normalized = String(value || "").trim().toUpperCase();
 
-    if (normalized === "APP" || normalized === "CARD" || normalized === "PLACE") {
+    if (normalized === "APP" || normalized === "PLACE") {
         return normalized;
     }
 
@@ -1347,15 +1683,23 @@ function normalizeSelectedCoin(value: any): SelectedCoinKey | null {
         return `SPECIAL_${Number(specialMatch[1])}` as SelectedCoinKey;
     }
 
+    const achievementMatch = normalized.match(/^ACHIEVEMENT_([A-Z0-9_]+)$/);
+    if (achievementMatch) {
+        const coinCode = normalizeAchievementCoinCode(achievementMatch[1]);
+        if (coinCode) return `ACHIEVEMENT_${coinCode}` as SelectedCoinKey;
+    }
+
     return null;
 }
 
-function getCardHandLabel(hand: CardHandKey) {
-    return CARD_HANDS.find((item) => item.key === hand)?.label || "High Card";
+function isCardHandCoinEligible(hand: CardHandKey | string | null | undefined) {
+    const normalized = normalizeCardHand(hand);
+    return ["FULL_HOUSE", "FOUR_OF_A_KIND", "STRAIGHT_FLUSH", "ROYAL_FLUSH"].includes(normalized);
 }
 
-function getCardHandCoinSource(hand: CardHandKey) {
-    return CARD_HANDS.find((item) => item.key === hand)?.image || highCardCoinImage;
+function normalizeAdminCardHand(value: any): CardHandKey {
+    const normalized = normalizeCardHand(value);
+    return isCardHandCoinEligible(normalized) ? normalized : "FULL_HOUSE";
 }
 
 function getPlaceCoinSource(rank: number) {
@@ -1605,14 +1949,21 @@ const styles = StyleSheet.create({
         fontWeight: "900",
     },
     coinsGrid: {
+        marginHorizontal: -4,
+    },
+    coinsGridRow: {
         flexDirection: "row",
-        flexWrap: "wrap",
-        justifyContent: "space-between",
-        rowGap: 10,
+        justifyContent: "flex-start",
+        alignItems: "stretch",
+    },
+    achievementCoinCell: {
+        width: "33.3333%",
+        paddingHorizontal: 4,
+        marginBottom: 10,
     },
     achievementCoinWrap: {
-        width: "31.5%",
-        minHeight: 94,
+        width: "100%",
+        minHeight: 104,
         borderRadius: 18,
         borderWidth: 1.1,
         borderColor: theme.colors.border,
@@ -1620,7 +1971,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         paddingVertical: 9,
-        paddingHorizontal: 6,
+        paddingHorizontal: 5,
         position: "relative",
     },
     achievementCoinSelectedGold: {
@@ -1665,13 +2016,6 @@ const styles = StyleSheet.create({
         color: "#1A1208",
         fontSize: 11,
         fontWeight: "900",
-    },
-    setAsText: {
-        color: theme.colors.textSoft,
-        fontSize: 9,
-        fontWeight: "900",
-        textTransform: "uppercase",
-        marginTop: 2,
     },
     winnerInfoBox: {
         width: "100%",
@@ -1781,26 +2125,32 @@ const styles = StyleSheet.create({
 
     deleteWarningText: {
         color: theme.colors.textSoft,
-        fontSize: 13,
-        lineHeight: 18,
+        fontSize: 12,
+        lineHeight: 17,
         fontWeight: "700",
-        marginBottom: 4,
+        marginTop: 5,
+    },
+    deleteDangerZone: {
+        borderColor: "rgba(255,107,129,0.5)",
+        backgroundColor: "rgba(255,107,129,0.055)",
+    },
+    deleteDangerTitle: {
+        color: theme.colors.danger,
+        fontSize: 17,
+        fontWeight: "900",
     },
     deleteUserButton: {
         minHeight: 50,
         borderRadius: theme.radius.pill,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: theme.colors.gold2,
-        marginTop: 16,
-        shadowColor: theme.colors.gold2,
-        shadowOpacity: 0.22,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 8,
+        backgroundColor: "rgba(255,107,129,0.08)",
+        borderWidth: 1.2,
+        borderColor: "rgba(255,107,129,0.7)",
+        marginTop: 14,
     },
     deleteUserButtonText: {
-        color: "#1A1208",
+        color: theme.colors.danger,
         fontSize: 15,
         fontWeight: "900",
     },
@@ -1949,6 +2299,75 @@ const styles = StyleSheet.create({
         textTransform: "uppercase",
         letterSpacing: 1.4,
         marginTop: 4,
+    },
+    userManagerCard: {
+        maxHeight: "92%",
+    },
+    adminModalScroll: {
+        maxHeight: "100%",
+    },
+    adminModalScrollContent: {
+        paddingBottom: 8,
+    },
+    adminModalDescription: {
+        color: theme.colors.textSoft,
+        fontSize: 12,
+        lineHeight: 17,
+        fontWeight: "700",
+        marginTop: 7,
+    },
+    userManagerSectionCard: {
+        marginTop: 14,
+        borderRadius: 22,
+        borderWidth: 1.1,
+        borderColor: theme.colors.borderStrong,
+        backgroundColor: "rgba(214,179,106,0.055)",
+        padding: 14,
+    },
+    userManagerSectionHeader: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 10,
+    },
+    userManagerIconBubble: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        borderWidth: 1,
+        borderColor: theme.colors.borderStrong,
+        backgroundColor: "rgba(214,179,106,0.13)",
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: 2,
+    },
+    userManagerIconText: {
+        color: theme.colors.gold2,
+        fontSize: 17,
+        fontWeight: "900",
+    },
+    userManagerDangerIconBubble: {
+        borderColor: "rgba(255,107,129,0.55)",
+        backgroundColor: "rgba(255,107,129,0.1)",
+    },
+    userManagerDangerIconText: {
+        color: theme.colors.danger,
+    },
+    resetPasswordLuxuryBoxCompact: {
+        minHeight: 74,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        backgroundColor: "rgba(0,0,0,0.22)",
+        alignItems: "center",
+        justifyContent: "center",
+        marginTop: 13,
+    },
+    resetPasswordLuxuryCodeCompact: {
+        color: theme.colors.gold2,
+        fontSize: 25,
+        lineHeight: 31,
+        fontWeight: "900",
+        letterSpacing: 2.4,
     },
 
     sectionCard: {
@@ -2174,6 +2593,60 @@ const styles = StyleSheet.create({
     handOptionSelected: {
         borderColor: theme.colors.gold2,
         backgroundColor: "rgba(214,179,106,0.11)",
+    },
+    handOptionFocused: {
+        borderColor: "rgba(214,179,106,0.55)",
+    },
+    handOptionDisabled: {
+        opacity: 0.48,
+    },
+    coinOwnedBadgeWrap: {
+        position: "absolute",
+        top: 8,
+        right: 8,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 2,
+    },
+    coinOwnedBadge: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: theme.colors.gold2,
+    },
+    coinOwnedBadgeText: {
+        color: "#1A1208",
+        fontSize: 14,
+        fontWeight: "900",
+    },
+    coinNotOwnedBadge: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: theme.colors.borderStrong,
+        backgroundColor: "rgba(0,0,0,0.22)",
+    },
+    coinNotOwnedBadgeText: {
+        color: theme.colors.textSoft,
+        fontSize: 15,
+        fontWeight: "900",
+    },
+    coinToggleHint: {
+        color: theme.colors.textSoft,
+        fontSize: 9.5,
+        fontWeight: "900",
+        textAlign: "center",
+        marginTop: 3,
+        textTransform: "uppercase",
+        letterSpacing: 0.45,
     },
     handCoin: {
         width: 44,

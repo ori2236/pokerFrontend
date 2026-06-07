@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useAuth } from "../src/context/AuthContext";
 import ScreenContainer from "../src/components/ScreenContainer";
+import SpinningCoin from "../src/components/SpinningCoin";
 import ThemedButton from "../src/components/ThemedButton";
 import ThemedCard from "../src/components/ThemedCard";
 import LuxuryInput from "../src/components/LuxuryInput";
@@ -46,7 +47,7 @@ export default function LoginScreen() {
         style={styles.bgArt}
       >
         <View style={styles.center}>
-          <Image source={coinImage} style={styles.coin} />
+          <SpinningCoin source={coinImage} size={140} style={styles.coin} />
           <Text style={styles.eyebrow}>Private Members Club</Text>
           <Text style={styles.title}>Double O</Text>
           <Text style={styles.subtitle}>A premium poker wallet for the inner circle.</Text>

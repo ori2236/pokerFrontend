@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "rea
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import ScreenContainer from "../src/components/ScreenContainer";
+import SpinningCoin from "../src/components/SpinningCoin";
 import ThemedCard from "../src/components/ThemedCard";
 import AppModal from "../src/components/AppModal";
 import { api } from "../src/lib/api";
@@ -95,7 +96,7 @@ export default function AdminRequestsScreen() {
           </Pressable>
 
           <Text style={styles.title}>Requests</Text>
-          <Image source={coinImage} style={styles.coin} />
+          <SpinningCoin source={coinImage} size={64} style={styles.coin} />
         </View>
 
 

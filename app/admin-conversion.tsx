@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import ScreenContainer from "../src/components/ScreenContainer";
+import SpinningCoin from "../src/components/SpinningCoin";
 import ThemedCard from "../src/components/ThemedCard";
 import ThemedButton from "../src/components/ThemedButton";
 import AppModal from "../src/components/AppModal";
@@ -167,7 +168,7 @@ export default function AdminConversionScreen() {
       <ScreenContainer>
         <View style={styles.header}>
           <Text style={styles.title}>Manual Conversion</Text>
-          <Image source={coinImage} style={styles.coin} />
+          <SpinningCoin source={coinImage} size={68} style={styles.coin} />
         </View>
 
         <ThemedCard glow="gold" style={styles.cardSpacing}>

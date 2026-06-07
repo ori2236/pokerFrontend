@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import ScreenContainer from "../../src/components/ScreenContainer";
+import SpinningCoin from "../../src/components/SpinningCoin";
 import ThemedCard from "../../src/components/ThemedCard";
 import AppModal from "../../src/components/AppModal";
 import { api } from "../../src/lib/api";
@@ -126,7 +127,7 @@ export default function BonusesScreen() {
           <View style={styles.headerTextBlock}>
             <Text style={styles.title}>Bonuses</Text>
           </View>
-          <Image source={coinImage} style={styles.coin} resizeMode="contain" />
+          <SpinningCoin source={coinImage} size={74} style={styles.coin} />
         </View>
 
         <ThemedCard glow="none" style={styles.infoCard}>

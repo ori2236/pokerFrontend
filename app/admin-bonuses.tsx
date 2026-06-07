@@ -3,6 +3,7 @@ import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "rea
 import * as ImagePicker from "expo-image-picker";
 import { Redirect, useFocusEffect } from "expo-router";
 import ScreenContainer from "../src/components/ScreenContainer";
+import SpinningCoin from "../src/components/SpinningCoin";
 import ThemedCard from "../src/components/ThemedCard";
 import ThemedButton from "../src/components/ThemedButton";
 import LuxuryInput from "../src/components/LuxuryInput";
@@ -223,7 +224,7 @@ export default function AdminBonusesScreen() {
       <ScreenContainer refreshing={refreshing} onRefresh={onRefresh}>
         <View style={styles.header}>
           <Text style={styles.title}>Manage Bonuses</Text>
-          <Image source={coinImage} style={styles.coin} />
+          <SpinningCoin source={coinImage} size={64} style={styles.coin} />
         </View>
 
         <ThemedCard glow="gold" style={styles.heroCard}>

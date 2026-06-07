@@ -14,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/context/AuthContext";
 import ScreenContainer from "../src/components/ScreenContainer";
+import SpinningCoin from "../src/components/SpinningCoin";
 import ThemedCard from "../src/components/ThemedCard";
 import LuxuryInput from "../src/components/LuxuryInput";
 import ThemedButton from "../src/components/ThemedButton";
@@ -95,7 +96,7 @@ export default function RegisterScreen() {
                 imageStyle={styles.caseImage}
                 style={styles.bgArt}
             >
-                <Image source={coinImage} style={styles.coin} />
+                <SpinningCoin source={coinImage} size={140} style={styles.coin} />
                 <Text style={styles.eyebrow}>Private Members Club</Text>
                 <Text style={styles.title}>Create Account</Text>
                 <Text style={styles.subtitle}>
